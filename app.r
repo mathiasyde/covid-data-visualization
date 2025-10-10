@@ -33,7 +33,7 @@ server <- shinyServer(function(input, output, session) {
 		AGE_LEVELS <- c("0-4", "5-11", "12-17", "18-29", "30-49", "50-64", "65-79", "80+")
 		Chicago <- Chicago |> mutate(Age.Group = factor(Age.Group, levels = AGE_LEVELS, ordered = TRUE))
 
-		ggplot(Chicago, aes(x=Date, fill=Age.Group)) +
+		ggplot(filter(Chicago, Date >= Date.Start & Date <= Date.End), aes(x=Date, fill=Age.Group)) +
 			# stacked bar chart for vaccinated vs unvaccinated outcomes
 			geom_bar(aes(y=Outcome.Vaccinated), stat="identity", alpha=0.7) +
 			geom_bar(aes(y=-Outcome.Unvaccinated), stat="identity", alpha=0.7) +
