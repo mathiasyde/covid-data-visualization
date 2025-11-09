@@ -3,6 +3,7 @@ library(ggplot2)
 library(ggridges)
 library(dplyr)
 library(bslib)
+library(tidyr)
 
 ui <- page_navbar(
 	title = "Exploratory visualization of the COVID-19 pandemic in the U.S.",
@@ -36,6 +37,46 @@ ui <- page_navbar(
 			)
 		)
 	),
+	
+	tabPanel(
+	  "Vaccine Effectiveness Analysis",
+	  sidebarLayout(
+	    sidebarPanel(
+	      h4("Filter Options"),
+	      dateRangeInput(
+	        "date_range_analysis",
+	        label = "Date Range",
+	        start = "2021-01-01",
+	        end = "2023-06-30"
+	      ),
+	      checkboxGroupInput(
+	        "age_groups_filter",
+	        label = "Select Age Groups",
+	        choices = c("0-4", "5-11", "12-17", "18-29", "30-49", "50-64", "65-79", "80+"),
+	        selected = c("0-4", "5-11", "12-17", "18-29", "30-49", "50-64", "65-79", "80+")
+	      )
+	    ),
+	    mainPanel(
+	      h3("Vaccine Effectiveness in Chicago"),
+	      p("Analyzing how vaccines protected Chicago residents and what influenced vaccine outcomes."),
+	      
+	      # Graph 1: Vaccine Rollout Timeline
+	      h4("1. COVID-19 Spread and Vaccine Rollout Timeline"),
+	      plotOutput("vaccineRolloutPlot", height = "400px"),
+	      br(),
+	      
+	      # Graph 2: Risk Reduction Analysis
+	      h4("2. Vaccine Risk Reduction by Outcome Type"),
+	      plotOutput("riskReductionPlot", height = "400px"),
+	      br(),
+	      
+	      # Graph 3: Age Group Comparison
+	      h4("3. Vaccine Benefits by Age Group"),
+	      plotOutput("ageGroupBenefitPlot", height = "500px")
+	    )
+	  )
+	),
+	
 	nav_spacer(),
 	nav_menu(
 		"More",
@@ -77,7 +118,8 @@ server <- shinyServer(function(input, output, session) {
 			animate = animationOptions(interval = 30)
 		)
 	})
-
+	
+	#Mathias graphs/plots
 	# === PLOTS ===
 	output$ChicagoPopulation <- renderPlot({
 		targetDate <- as.Date(input$date)
@@ -133,6 +175,151 @@ server <- shinyServer(function(input, output, session) {
 			theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
 			labs(y = "Number of Outcomes (Unvaccinated vs Vaccinated)", x="") +
 			facet_wrap(~Outcome, scales = "free_y", ncol = 1)
+	})
+	
+	#Michelle Graphs/Plots
+	# GRAPH 1: Vaccine Rollout Timeline
+	output$vaccineRolloutPlot <- renderPlot({
+	  # Filter data based on date range
+	  data <- Chicago$Outcomes |>
+	    filter(Date >= as.Date(input$date_range_analysis[1]) & 
+	             Date <= as.Date(input$date_range_analysis[2])) |>
+	    group_by(Date, Outcome) |>
+	    summarise(
+	      Total_Vaccinated = sum(Outcome.Vaccinated, na.rm = TRUE),
+	      Total_Unvaccinated = sum(Outcome.Unvaccinated, na.rm = TRUE),
+	      Total_Cases = sum(Outcome.Vaccinated, na.rm = TRUE) + sum(Outcome.Unvaccinated, na.rm = TRUE),
+	      .groups = "drop"
+	    )
+	  
+	  # Get population data for vaccination rates
+	  pop_data <- Chicago$Population |>
+	    filter(Date >= as.Date(input$date_range_analysis[1]) & 
+	             Date <= as.Date(input$date_range_analysis[2])) |>
+	    mutate(Vaccination_Rate = (Population.Vaccinated / 
+	                                 (Population.Vaccinated + Population.Unvaccinated)) * 100)
+	  
+	  # Create dual-axis plot
+	  ggplot() +
+	    # Cases over time (line)
+	    geom_line(data = data |> filter(Outcome == "Cases"), 
+	              aes(x = Date, y = Total_Cases, color = "Total Cases"), 
+	              size = 1) +
+	    # Vaccination rate (area)
+	    geom_area(data = pop_data, 
+	              aes(x = Date, y = Vaccination_Rate * 100, fill = "Vaccination Rate"), 
+	              alpha = 0.3) +
+	    scale_y_continuous(
+	      name = "Number of Cases",
+	      sec.axis = sec_axis(~./100, name = "Vaccination Rate (%)")
+	    ) +
+	    scale_color_manual(values = c("Total Cases" = "#e74c3c")) +
+	    scale_fill_manual(values = c("Vaccination Rate" = "#3498db")) +
+	    theme_minimal() +
+	    labs(
+	      title = "COVID-19 Cases vs. Vaccination Rate Over Time",
+	      subtitle = "How vaccine rollout impacted case numbers in Chicago",
+	      x = "Date",
+	      color = "",
+	      fill = ""
+	    ) +
+	    theme(
+	      legend.position = "bottom",
+	      plot.title = element_text(face = "bold", size = 14),
+	      axis.text.x = element_text(angle = 45, hjust = 1)
+	    )
+	})
+	
+	# GRAPH 2: Risk Reduction Analysis
+	output$riskReductionPlot <- renderPlot({
+	  data <- Chicago$Outcomes |>
+	    filter(Date >= as.Date(input$date_range_analysis[1]) & 
+	             Date <= as.Date(input$date_range_analysis[2])) |>
+	    group_by(Outcome) |>
+	    summarise(
+	      Total_Vaccinated = sum(Outcome.Vaccinated, na.rm = TRUE),
+	      Total_Unvaccinated = sum(Outcome.Unvaccinated, na.rm = TRUE),
+	      .groups = "drop"
+	    ) |>
+	    mutate(
+	      # Calculate rate per 100k (approximate)
+	      Rate_Vaccinated = Total_Vaccinated / sum(Total_Vaccinated) * 100000,
+	      Rate_Unvaccinated = Total_Unvaccinated / sum(Total_Unvaccinated) * 100000,
+	      # Calculate risk reduction percentage
+	      Risk_Reduction = ((Rate_Unvaccinated - Rate_Vaccinated) / Rate_Unvaccinated) * 100
+	    )
+	  
+	  # Reshape data for grouped bar chart
+	  plot_data <- data |>
+	    select(Outcome, Rate_Vaccinated, Rate_Unvaccinated) |>
+	    pivot_longer(cols = c(Rate_Vaccinated, Rate_Unvaccinated), 
+	                 names_to = "Status", 
+	                 values_to = "Rate") |>
+	    mutate(Status = ifelse(Status == "Rate_Vaccinated", "Vaccinated", "Unvaccinated"))
+	  
+	  ggplot(plot_data, aes(x = Outcome, y = Rate, fill = Status)) +
+	    geom_bar(stat = "identity", position = "dodge", width = 0.7) +
+	    geom_text(aes(label = round(Rate, 1)), 
+	              position = position_dodge(width = 0.7), 
+	              vjust = -0.5, 
+	              size = 3.5) +
+	    scale_fill_manual(values = c("Vaccinated" = "#0072B2", "Unvaccinated" = "#D55E00")) +
+	    theme_minimal() +
+	    labs(
+	      title = "Vaccine Effectiveness: Relative Rates by Outcome",
+	      subtitle = "Comparing rates between vaccinated and unvaccinated individuals",
+	      x = "Outcome Type",
+	      y = "Relative Rate (per 100k)",
+	      fill = "Vaccination Status"
+	    ) +
+	    theme(
+	      legend.position = "bottom",
+	      plot.title = element_text(face = "bold", size = 14),
+	      axis.text.x = element_text(size = 11)
+	    )
+	})
+	
+	# GRAPH 3: Age Group Benefit Analysis
+	output$ageGroupBenefitPlot <- renderPlot({
+	  # Filter by selected age groups and date range
+	  data <- Chicago$Outcomes |>
+	    filter(Date >= as.Date(input$date_range_analysis[1]) & 
+	             Date <= as.Date(input$date_range_analysis[2])) |>
+	    filter(Age.Group %in% input$age_groups_filter) |>
+	    group_by(Age.Group, Outcome) |>
+	    summarise(
+	      Total_Vaccinated = sum(Outcome.Vaccinated, na.rm = TRUE),
+	      Total_Unvaccinated = sum(Outcome.Unvaccinated, na.rm = TRUE),
+	      .groups = "drop"
+	    ) |>
+	    mutate(
+	      Total = Total_Vaccinated + Total_Unvaccinated,
+	      Vaccinated_Percentage = (Total_Vaccinated / Total) * 100,
+	      # Calculate protection benefit (lower percentage = better protection)
+	      Protection_Benefit = 100 - Vaccinated_Percentage
+	    )
+	  
+	  ggplot(data, aes(x = Age.Group, y = Protection_Benefit, fill = Outcome)) +
+	    geom_bar(stat = "identity", position = "dodge") +
+	    geom_text(aes(label = paste0(round(Protection_Benefit, 1), "%")), 
+	              position = position_dodge(width = 0.9), 
+	              vjust = -0.5, 
+	              size = 3) +
+	    scale_fill_brewer(palette = "Set2") +
+	    theme_minimal() +
+	    labs(
+	      title = "Vaccine Protection Benefit by Age Group",
+	      subtitle = "Higher percentage = greater protection from vaccines",
+	      x = "Age Group",
+	      y = "Protection Benefit (%)",
+	      fill = "Outcome Type"
+	    ) +
+	    theme(
+	      legend.position = "bottom",
+	      plot.title = element_text(face = "bold", size = 14),
+	      axis.text.x = element_text(angle = 45, hjust = 1)
+	    ) +
+	    facet_wrap(~Outcome, ncol = 1, scales = "free_y")
 	})
 })
 
