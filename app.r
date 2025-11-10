@@ -2,6 +2,7 @@ library(shiny)
 library(ggplot2)
 library(ggridges)
 library(dplyr)
+library(grid)
 library(bslib)
 library(tidyr)
 
@@ -20,7 +21,10 @@ ui <- page_navbar(
 				),
 				uiOutput("AnimationControls"),
 				p("Use the animation slider to change the current date of visualization."),
-				p("Please note that the animation rendering may be slow.")
+
+				p("The x-axes are not syncroized between plots, so enable the date line to help correlate dates between plots."),
+				input_switch("dateLine", "Enable Date Line"),
+				p("Please note that the animation rendering may be slow."),
 			),
 			mainPanel(
 				h3("Exploring the COVID-19 pandemic in Chicago."),
@@ -29,11 +33,11 @@ ui <- page_navbar(
 						"The state of Illinois were one of the first states in the U.S. to be impacted by COVID-19 after an
 						international travel event in early 2020. Here, we will explore historical data of the pandemic in the
 						Illinois, focusing on Chicago."
-					),
-					plotOutput("ChicagoPopulation")
+					)
 				),
 				p("Area above the y=0 line represents vaccinated outcomes; area below represents unvaccinated outcomes."),
-				plotOutput("ChicagoOutcomes")
+				plotOutput("ChicagoOutcomes"),
+				plotOutput("ChicagoPopulation")
 			)
 		)
 	),
@@ -87,7 +91,7 @@ ui <- page_navbar(
 		tabPanel(
 			"References",
 			tags$ul(
-				tags$li(a("CDC: Centers for Disease Control and Prevention, COVID-19 Timeline (July 8, 2024)",
+				tags$li(a("Centers for Disease Control and Prevention: \"COVID-19 Timeline\" (July 8, 2024)",
 					href = "https://www.cdc.gov/museum/timeline/covid19.html"
 				))
 			)
@@ -122,36 +126,24 @@ server <- shinyServer(function(input, output, session) {
 	#Mathias graphs/plots
 	# === PLOTS ===
 	output$ChicagoPopulation <- renderPlot({
-		targetDate <- as.Date(input$date)
-		pop_df <- Chicago$Population
+		# Keep the population plot limited to the selected date range so the x-axis
+		# aligns with the outcomes plot below.
+		Date.Start <- as.Date(input$range[1])
+		Date.End <- as.Date(input$range[2])
 
-		# Guard: if no population data, nothing to plot
-		if (is.null(pop_df) || nrow(pop_df) == 0) return(NULL)
+		ggplot(Chicago$Population, aes(x=Date)) +
+			geom_line(aes(y=Population.Boosted, color="Boosted")) +
+			geom_line(aes(y=Population.Vaccinated, color="Vaccinated")) +
+			geom_line(aes(y=Population.Unvaccinated, color="Unvaccinated")) +
+			labs(y = "Population", x="Date", color="Group") +
+			theme_minimal() +
+			scale_color_manual(values = c("Boosted" = "blue", "Vaccinated" = "green", "Unvaccinated" = "red")) +
 
-		# Get the most recent row on/before target date; if none, fallback to earliest available
-		most_recent <- pop_df |> dplyr::filter(Date <= targetDate) |> dplyr::slice_tail(n = 1)
-		if (nrow(most_recent) == 0) {
-			most_recent <- pop_df |> dplyr::arrange(Date) |> dplyr::slice(1)
-		}
-
-		boosted <- most_recent$Population.Boosted
-		vaccinated <- most_recent$Population.Vaccinated
-		unvaccinated <- most_recent$Population.Unvaccinated
-
-		boosted <- ifelse(is.na(boosted), 0, boosted)
-		vaccinated <- ifelse(is.na(vaccinated), 0, vaccinated)
-		unvaccinated <- ifelse(is.na(unvaccinated), 0, unvaccinated)
-
-		data <- data.frame(
-			group = c("Boosted", "Vaccinated", "Unvaccinated"),
-			value = c(boosted, vaccinated, unvaccinated)
-		)
-
-		ggplot(data, aes(x="", y=value, fill=group)) +
-			geom_bar(stat="identity", width=1, color="white") +
-			coord_polar("y", start=0) +
-			theme_void() + 
-			ggtitle(paste("Chicago Population by Vaccination Status on", format(targetDate, "%Y-%m-%d")))
+			# draw a vertical line to show the current date
+			{if(input$dateLine) geom_vline(xintercept = as.Date(input$date), linetype="dashed", color="red", size=0.5) }+
+			{if(input$dateLine) geom_text(aes(x=as.Date(input$date), y=0, label=format(as.Date(input$date), "%Y-%m-%d")), vjust=-1, color="red") }+
+			
+			ggtitle("Chicago Population by Vaccination Status Over Time")
 	})
 
 	output$ChicagoOutcomes <- renderPlot({
@@ -167,12 +159,10 @@ server <- shinyServer(function(input, output, session) {
 			geom_hline(yintercept = 0, color = "#222222", linewidth = 0.2) +
 
 			# draw a vertical line to show the current date
-			# note: commented out for now since shiny is incredibly slow rendering this plot
-			# geom_vline(xintercept = as.Date(input$date), linetype="dashed", color="red", size=0.5) +
-			# geom_text(aes(x=as.Date(input$date), y=0, label=format(as.Date(input$date), "%Y-%m-%d")), vjust=-1, color="red") +
+			{if(input$dateLine) geom_vline(xintercept = as.Date(input$date), linetype="dashed", color="red", size=0.5) }+
+			{if(input$dateLine) geom_text(aes(x=as.Date(input$date), y=0, label=format(as.Date(input$date), "%Y-%m-%d")), vjust=-1, color="red") }+
 
 			theme_minimal() +
-			theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
 			labs(y = "Number of Outcomes (Unvaccinated vs Vaccinated)", x="") +
 			facet_wrap(~Outcome, scales = "free_y", ncol = 1)
 	})
