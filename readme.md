@@ -1,3 +1,9 @@
+#TO-DO!
+- Inkorporate feedback on the visualisation, given by Parissa
+- 2 visualizations from Jonas!
+- Make an AI generated visualization
+- Restructure the dashboard to tell a story/ give a better flow
+
 # COVID-19 Data Visualization Project
 
 ## Project Overview
