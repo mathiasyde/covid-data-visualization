@@ -26,6 +26,7 @@ install.packages("dplyr")
 install.packages("tidyr")
 install.packages("bslib")
 install.packages("tidyverse")
+install.packages("sf")
 ```
 
 ### 3. Prepare the Data (IMPORTANT!)
