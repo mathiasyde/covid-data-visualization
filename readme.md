@@ -21,6 +21,7 @@ install.packages("tidyr")
 install.packages("bslib")
 install.packages("tidyverse")
 install.packages("sf")
+install.packages("leaflet")
 ```
 
 ### 3. Prepare the Data (IMPORTANT!)
