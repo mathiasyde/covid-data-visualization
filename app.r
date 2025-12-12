@@ -27,6 +27,7 @@ ui <- page_navbar(
         p("The x-axes are not syncroized between plots, so enable the date line to help correlate dates between plots."),
         input_switch("dateLine", "Enable Date Line"),
         p("Please note that the animation rendering may be slow."),
+        input_switch("enableAnnotations", "Display annotations")
       ),
       mainPanel(
         h3("Exploring the COVID-19 pandemic in Chicago."),
@@ -196,6 +197,14 @@ ui <- page_navbar(
 )
 
 server <- shinyServer(function(input, output, session) {
+  Annotations <- reactive({
+    list(
+      Omicron = if (input$enableAnnotations) {
+        geom_vline(xintercept = as.Date("2022-01-01"), linetype="dashed", color="red", linewidth=0.5)
+      } else NULL,
+    )
+  })
+
   Chicago <- list()
   
   # === DATA ===
@@ -276,7 +285,10 @@ server <- shinyServer(function(input, output, session) {
       scale_color_manual(values = c("Boosted" = "blue", "Vaccinated" = "green", "Unvaccinated" = "red")) +
       {if(input$dateLine) geom_vline(xintercept = as.Date(input$date), linetype="dashed", color="red", size=0.5) }+
       {if(input$dateLine) geom_text(aes(x=as.Date(input$date), y=0, label=format(as.Date(input$date), "%Y-%m-%d")), vjust=-1, color="red") }+
-      ggtitle("Chicago Population by Vaccination Status Over Time")
+      ggtitle("Chicago Population by Vaccination Status Over Time") +
+
+            {if(input$enableAnnotations) geom_vline(xintercept = as.Date("2022-01-01"), linetype="dashed", color="red", size=0.5) }+
+      {if(input$enableAnnotations) geom_text(aes(x=as.Date("2022-01-01"), y=0, label="new omicrant variant"), vjust=-1, color="red") }
   })
   
   output$ChicagoOutcomes <- renderPlot({
