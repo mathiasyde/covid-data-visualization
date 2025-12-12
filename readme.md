@@ -22,6 +22,16 @@ install.packages("bslib")
 install.packages("tidyverse")
 install.packages("sf")
 install.packages("leaflet")
+install.packages("viridis")
+install.packages("lubridate")
+install.packages("readr")
+install.packages("scales")
+
+if (!requireNamespace("ggstream", quietly = TRUE)) {
+  install.packages("devtools")
+  devtools::install_github("hrbrmstr/ggstream")
+}
+
 ```
 
 ### 3. Prepare the Data (IMPORTANT!)

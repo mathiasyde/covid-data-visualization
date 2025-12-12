@@ -7,6 +7,13 @@ library(bslib)
 library(tidyr)
 library(sf)
 library(leaflet)
+library(plotly)
+library(viridis)
+library(lubridate)
+library(readr)
+library(ggstream)
+library(scales)
+
 
 ui <- page_navbar(
   title = "Exploratory visualization of the COVID-19 pandemic in the U.S.",
@@ -75,6 +82,31 @@ ui <- page_navbar(
         # Graph 2: Risk Reduction Analysis
         h4("2. Vaccine Risk Reduction by Outcome Type"),
         plotOutput("riskReductionPlot", height = "400px")
+      )
+    )
+  ),
+  
+  tabPanel(
+    "VE (Age – Interactive)",
+    sidebarLayout(
+      sidebarPanel(
+        dateRangeInput(
+          "ve_date_range",
+          "Date Range",
+          start = "2021-01-01",
+          end = "2023-06-30"
+        ),
+        checkboxGroupInput(
+          "ve_age_groups",
+          "Select Age Groups",
+          choices = c("All","0-4","5-11","12-17","18-29","30-49","50-64","65-79","80+"),
+          selected = c("All","0-4","5-11","12-17","18-29","30-49","50-64","65-79","80+")
+        )
+      ),
+      mainPanel(
+        plotlyOutput("ve_spaghetti", height = "800px"),
+        plotlyOutput("ve_stream", height = "600px"),
+        plotlyOutput("ve_area", height = "600px")
       )
     )
   ),
@@ -204,7 +236,7 @@ server <- shinyServer(function(input, output, session) {
       } else NULL,
     )
   })
-
+  
   Chicago <- list()
   
   # === DATA ===
@@ -214,6 +246,10 @@ server <- shinyServer(function(input, output, session) {
   
   Chicago$Population <- read.csv("data/chicago_population.csv", stringsAsFactors = FALSE) |>
     mutate(Date = as.Date(Date))
+  
+  Chicago$Raw <- readr::read_csv("datasets/chicago.csv", show_col_types = FALSE) %>%
+    mutate(week_end = mdy(`Week End`))
+  
   
   # Load ZIP code data and boundaries
   Chicago$ZipData <- tryCatch({
@@ -307,6 +343,135 @@ server <- shinyServer(function(input, output, session) {
       labs(y = "Number of Outcomes (Unvaccinated vs Vaccinated)", x="") +
       facet_wrap(~Outcome, scales = "free_y", ncol = 1)
   })
+  
+  #Jonas Graph/Plots
+  ve_base <- reactive({
+    req(Chicago$Raw)
+    
+    d <- Chicago$Raw %>%
+      filter(
+        Outcome == "Cases",
+        week_end >= as.Date(input$ve_date_range[1]),
+        week_end <= as.Date(input$ve_date_range[2]),
+        !is.na(`Unvaccinated Rate`),
+        `Unvaccinated Rate` > 0,
+        !is.na(`Vaccinated Rate`)
+      ) %>%
+      mutate(
+        ve = (1 - (`Vaccinated Rate` / `Unvaccinated Rate`)) * 100,
+        ve = pmax(pmin(ve, 100), -100)
+      )
+    
+    d %>% filter(`Age Group` %in% input$ve_age_groups)
+  })
+  
+  #Spaghetti Plot
+  output$ve_spaghetti <- renderPlotly({
+    d <- ve_base()
+    req(nrow(d) > 0)
+    
+    ve_all <- d %>% filter(`Age Group` == "All")
+    ve_age <- d %>% filter(`Age Group` != "All")
+    ve_combined <- bind_rows(ve_age, ve_all)
+    
+    tmp <- ve_combined %>% mutate(age_group2 = `Age Group`)
+    
+    p <- ggplot(ve_combined, aes(x = week_end, y = ve)) +
+      geom_line(
+        data = tmp %>% select(-`Age Group`),
+        aes(group = age_group2),
+        color = "grey",
+        linewidth = 0.5,
+        alpha = 0.5
+      ) +
+      geom_line(aes(color = `Age Group`), linewidth = 1.2) +
+      scale_color_viridis_d() +
+      facet_wrap(~ `Age Group`) +
+      theme_minimal() +
+      theme(legend.position = "none")
+    
+    ggplotly(p)
+  })
+  
+  #Streamgraph
+  output$ve_stream <- renderPlotly({
+    d <- ve_base() %>% filter(`Age Group` != "All")
+    req(nrow(d) > 0)
+    
+    ve_stream <- d %>%
+      select(week_end, age_group = `Age Group`, ve) %>%
+      group_by(week_end, age_group) %>%
+      summarise(ve = mean(ve, na.rm = TRUE), .groups = "drop") %>%
+      group_by(age_group) %>%
+      arrange(week_end, .by_group = TRUE) %>%
+      mutate(idx = row_number()) %>%
+      filter(idx %% 2 == 0)
+    
+    p <- ggplot(
+      ve_stream,
+      aes(
+        x = week_end,
+        y = ve,
+        fill = age_group,
+        text = paste0(
+          "Age group: ", age_group,
+          "<br>Date: ", week_end,
+          "<br>VE: ", round(ve, 1), "%"
+        )
+      )
+    ) +
+      geom_stream(bw = 0.7) +
+      scale_fill_viridis_d(option = "plasma") +
+      theme_minimal()
+    
+    ggplotly(p, tooltip = "text")
+  })
+  
+  #Area Plot  
+  output$ve_area <- renderPlotly({
+    d <- ve_base() %>% filter(`Age Group` != "All")
+    req(nrow(d) > 0)
+    
+    ve_area <- d %>%
+      mutate(age_lower = readr::parse_number(`Age Group`))
+    
+    order <- ve_area %>%
+      distinct(`Age Group`, age_lower) %>%
+      arrange(age_lower) %>%
+      pull(`Age Group`)
+    
+    ve_area$`Age Group` <- factor(ve_area$`Age Group`, levels = order)
+    
+    gp <- ggplotly(
+      ggplot(ve_area, aes(week_end, ve, fill = `Age Group`)) +
+        geom_area() +
+        scale_fill_viridis_d()
+    )
+    
+    age_groups <- levels(ve_area$`Age Group`)
+    n <- length(age_groups)
+    
+    visibility <- c(
+      list(rep(TRUE, n)),
+      lapply(seq_len(n), function(i) replace(rep(FALSE, n), i, TRUE))
+    )
+    
+    gp %>% layout(
+      updatemenus = list(
+        list(
+          active = 0,
+          buttons = lapply(seq_along(visibility), function(i) {
+            list(
+              label = c("Show All", age_groups)[i],
+              method = "update",
+              args = list(list(visible = visibility[[i]]))
+            )
+          })
+        )
+      )
+    )
+  })
+  
   
   #Michelle Graphs/Plots
   # GRAPH 1: Vaccine Rollout Timeline
