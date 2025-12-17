@@ -2,3 +2,4 @@
 data/**
 geographic/**
 .Rproj.user
+.RData
