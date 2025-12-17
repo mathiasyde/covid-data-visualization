@@ -7,6 +7,7 @@ library(bslib)
 library(tidyr)
 library(sf)
 library(leaflet)
+library(plotly)
 
 ui <- page_navbar(
   title = "Exploratory visualization of the COVID-19 pandemic in the U.S.",
@@ -69,7 +70,7 @@ ui <- page_navbar(
         
         # Graph 1: Vaccine Rollout Timeline
         h4("1. COVID-19 Spread and Vaccine Rollout Timeline"),
-        plotOutput("vaccineRolloutPlot", height = "400px"),
+        plotlyOutput("vaccineRolloutPlot", height = "400px"),
         br(),
         
         # Graph 2: Risk Reduction Analysis
@@ -310,7 +311,8 @@ server <- shinyServer(function(input, output, session) {
   
   #Michelle Graphs/Plots
   # GRAPH 1: Vaccine Rollout Timeline
-  output$vaccineRolloutPlot <- renderPlot({
+  output$vaccineRolloutPlot <- renderPlotly({
+    # Prepare the data
     data <- Chicago$Outcomes |>
       filter(Date >= as.Date(input$date_range_analysis[1]) & 
                Date <= as.Date(input$date_range_analysis[2])) |>
@@ -328,31 +330,105 @@ server <- shinyServer(function(input, output, session) {
       mutate(Vaccination_Rate = (Population.Vaccinated / 
                                    (Population.Vaccinated + Population.Unvaccinated)) * 100)
     
-    ggplot() +
-      geom_line(data = data |> filter(Outcome == "Cases"), 
-                aes(x = Date, y = Total_Cases, color = "Total Cases"), 
-                size = 1) +
-      geom_area(data = pop_data, 
-                aes(x = Date, y = Vaccination_Rate * 100, fill = "Vaccination Rate"), 
-                alpha = 0.3) +
-      scale_y_continuous(
-        name = "Number of Cases",
-        sec.axis = sec_axis(~./100, name = "Vaccination Rate (%)")
-      ) +
-      scale_color_manual(values = c("Total Cases" = "#e74c3c")) +
-      scale_fill_manual(values = c("Vaccination Rate" = "#3498db")) +
-      theme_minimal() +
-      labs(
-        title = "COVID-19 Cases vs. Vaccination Rate Over Time",
-        subtitle = "How vaccine rollout impacted case numbers in Chicago",
-        x = "Date",
-        color = "",
-        fill = ""
-      ) +
-      theme(
-        legend.position = "bottom",
-        plot.title = element_text(face = "bold", size = 14),
-        axis.text.x = element_text(angle = 45, hjust = 1)
+    # Get cases data
+    cases_data <- data |> filter(Outcome == "Cases")
+    
+    # Find the peak
+    peak_date <- cases_data$Date[which.max(cases_data$Total_Cases)]
+    peak_value <- max(cases_data$Total_Cases, na.rm = TRUE)
+    
+    # Create native plotly plot
+    plot_ly() %>%
+      # Add total cases line FIRST (so it's the primary data)
+      add_trace(
+        data = cases_data,
+        x = ~Date,
+        y = ~Total_Cases,
+        type = 'scatter',
+        mode = 'lines',
+        line = list(color = '#e74c3c', width = 2),
+        name = 'Total Cases',
+        text = ~paste0("Date: ", format(Date, "%B %d, %Y"), 
+                       "<br>Total Cases: ", format(Total_Cases, big.mark = ",")),
+        hovertemplate = '%{text}<extra></extra>'
+      ) %>%
+      # Add vaccination rate area (subtle background)
+      add_trace(
+        data = pop_data,
+        x = ~Date,
+        y = ~Vaccination_Rate,
+        type = 'scatter',
+        mode = 'none',
+        fill = 'tozeroy',
+        fillcolor = 'rgba(52, 152, 219, 0.3)',
+        name = 'Vaccination Rate (%)',
+        text = ~paste0("Date: ", format(Date, "%B %d, %Y"), 
+                       "<br>Vaccination Rate: ", round(Vaccination_Rate, 1), "%"),
+        hovertemplate = '%{text}<extra></extra>',
+        yaxis = 'y2'
+      ) %>%
+      # Add peak marker line
+      add_segments(
+        x = peak_date,
+        xend = peak_date,
+        y = 0,
+        yend = peak_value,
+        line = list(color = '#c0392b', width = 2, dash = 'dash'),
+        showlegend = FALSE,
+        hoverinfo = 'skip'
+      ) %>%
+      # Add peak annotation with better positioning
+      add_annotations(
+        x = peak_date,
+        y = peak_value * 1.05,
+        text = paste0("<b>Peak: Omicron Variant Surge</b><br>",
+                      format(peak_date, "%B %d, %Y")),
+        xref = "x",
+        yref = "y",
+        showarrow = TRUE,
+        arrowhead = 2,
+        arrowsize = 1,
+        arrowwidth = 2,
+        arrowcolor = "#c0392b",
+        ax = 50,
+        ay = -50,
+        font = list(color = "#c0392b", size = 11),
+        bgcolor = "rgba(255, 255, 255, 0.9)",
+        bordercolor = "#c0392b",
+        borderwidth = 1.5,
+        borderpad = 4
+      ) %>%
+      # Layout with dual y-axes and better spacing
+      layout(
+        title = list(
+          text = "<b>COVID-19 Cases vs. Vaccination Rate Over Time</b><br><sub>How vaccine rollout impacted case numbers in Chicago</sub>",
+          font = list(size = 16)
+        ),
+        xaxis = list(
+          title = "Date",
+          tickangle = -45
+        ),
+        yaxis = list(
+          title = "Number of Cases",
+          side = "left",
+          showgrid = TRUE
+        ),
+        yaxis2 = list(
+          title = "Vaccination Rate (%)",
+          overlaying = "y",
+          side = "right",
+          showgrid = FALSE,
+          range = c(0, 100)  # Fixed range 0-100% for vaccination rate
+        ),
+        hovermode = 'x unified',
+        legend = list(
+          orientation = "h",
+          y = -0.25,  # Moved further down to avoid overlap
+          x = 0.5,
+          xanchor = "center",
+          yanchor = "top"
+        ),
+        margin = list(b = 120, t = 80, l = 60, r = 60)  # Increased bottom margin
       )
   })
   
