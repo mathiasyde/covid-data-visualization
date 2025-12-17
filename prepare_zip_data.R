@@ -1,9 +1,15 @@
 library(tidyverse)
 library(sf)
 
-# Vaccination Data by ZIP code
+cat("=== Starting ZIP Code Data Preparation ===\n\n")
 
-vax_data_raw <- read.csv("datasets/COVID-19_Vaccinations_by_ZIP_Code_-_Historical.csv", stringsAsFactors = FALSE)
+# ============================================
+# PART 1: Vaccination Data
+# ============================================
+cat("Processing vaccination data...\n")
+
+vax_data_raw <- read.csv("datasets/COVID-19_Vaccinations_by_ZIP_Code_-_Historical.csv", 
+                         stringsAsFactors = FALSE)
 
 vax_data <- vax_data_raw %>%
   mutate(
@@ -29,51 +35,86 @@ vax_data <- vax_data_raw %>%
   filter(!is.na(ZIP_Code), !is.na(Date)) %>%
   arrange(Date, ZIP_Code)
 
-# Progression Data by ZIP code
+cat("✓ Vaccination data:", nrow(vax_data), "rows,", length(unique(vax_data$ZIP_Code)), "ZIP codes\n\n")
 
-prog_data_raw <- read.csv("datasets/COVID-19_Progression_by_ZIP_Code_-_Historical.csv", stringsAsFactors = FALSE)
+# ============================================
+# PART 2: COVID Progression Data
+# ============================================
+cat("Processing COVID progression data...\n")
 
+prog_data_raw <- read.csv("datasets/COVID-19_Progression_by_ZIP_Code_-_Historical.csv", 
+                          stringsAsFactors = FALSE)
+
+# Show what we got
+cat("  Columns found:", paste(head(names(prog_data_raw), 15), collapse=", "), "\n")
+
+# The key: Use the actual column names from the file
+# Common variations: Week.Start or Week.Start, ZIP.Code or Zip.Code
 prog_data <- prog_data_raw %>%
+  rename(
+    # Handle different possible date column names
+    Date_raw = any_of(c("Week.Start", "Week Start", "week.start")),
+    # Handle different possible ZIP column names  
+    ZIP_Code_raw = any_of(c("ZIP.Code", "ZIP Code", "Zip.Code", "Zip Code"))
+  ) %>%
   mutate(
-    Date = as.Date(Week.Start, format="%m/%d/%Y"),
-    ZIP_Code = as.character(ZIP.Code)
+    Date = as.Date(Date_raw, format="%m/%d/%Y"),
+    ZIP_Code = as.character(ZIP_Code_raw)
   ) %>%
   select(
     Date,
     ZIP_Code,
-    Cases_Weekly = Cases...Weekly,
-    Cases_Cumulative = Cases...Cumulative,
-    Deaths_Weekly = Deaths...Weekly,
-    Deaths_Cumulative = Deaths...Cumulative,
-    Tests_Weekly = Tests...Weekly,
-    Tests_Cumulative = Tests...Cumulative,
-    Case_Rate_Weekly = Case.Rate...Weekly,
-    Test_Rate_Weekly = Test.Rate...Weekly,
-    Percent_Tested_Positive_Weekly = Percent.Tested.Positive...Weekly
+    # Use any_of to handle column name variations
+    Cases_Weekly = any_of(c("Cases...Weekly", "Cases - Weekly", "Cases..Weekly")),
+    Cases_Cumulative = any_of(c("Cases...Cumulative", "Cases - Cumulative", "Cases..Cumulative")),
+    Deaths_Weekly = any_of(c("Deaths...Weekly", "Deaths - Weekly", "Deaths..Weekly")),
+    Deaths_Cumulative = any_of(c("Deaths...Cumulative", "Deaths - Cumulative", "Deaths..Cumulative")),
+    Tests_Weekly = any_of(c("Tests...Weekly", "Tests - Weekly", "Tests..Weekly")),
+    Tests_Cumulative = any_of(c("Tests...Cumulative", "Tests - Cumulative", "Tests..Cumulative")),
+    Case_Rate_Weekly = any_of(c("Case.Rate...Weekly", "Case Rate - Weekly", "Case.Rate..Weekly")),
+    Test_Rate_Weekly = any_of(c("Test.Rate...Weekly", "Test Rate - Weekly", "Test.Rate..Weekly")),
+    Percent_Tested_Positive_Weekly = any_of(c("Percent.Tested.Positive...Weekly", 
+                                              "Percent Tested Positive - Weekly",
+                                              "Percent.Tested.Positive..Weekly"))
   ) %>%
+  mutate(across(where(is.character) & !ZIP_Code, as.numeric)) %>%
   mutate(
-    Cases_Weekly = as.numeric(Cases_Weekly),
-    Cases_Cumulative = as.numeric(Cases_Cumulative),
-    Deaths_Weekly = as.numeric(Deaths_Weekly),
-    Deaths_Cumulative = as.numeric(Deaths_Cumulative),
-    Tests_Weekly = as.numeric(Tests_Weekly),
-    Tests_Cumulative = as.numeric(Tests_Cumulative),
-    Case_Rate_Weekly = as.numeric(Case_Rate_Weekly),
-    Test_Rate_Weekly = as.numeric(Test_Rate_Weekly),
-    Percent_Tested_Positive_Weekly = as.numeric(Percent_Tested_Positive_Weekly)
+    Cases_Weekly = replace_na(Cases_Weekly, 0),
+    Cases_Cumulative = replace_na(Cases_Cumulative, 0),
+    Deaths_Weekly = replace_na(Deaths_Weekly, 0),
+    Deaths_Cumulative = replace_na(Deaths_Cumulative, 0),
+    Tests_Weekly = replace_na(Tests_Weekly, 0),
+    Tests_Cumulative = replace_na(Tests_Cumulative, 0)
   ) %>%
   filter(!is.na(ZIP_Code), !is.na(Date)) %>%
   arrange(Date, ZIP_Code)
 
-# Merging the datasets
+cat("✓ COVID progression data:", nrow(prog_data), "rows,", 
+    length(unique(prog_data$ZIP_Code)), "ZIP codes\n")
 
-zip_data_combined <- prog_data %>%
-  full_join(vax_data, by = c("Date", "ZIP_Code")) %>%
-  arrange(Date, ZIP_Code) %>%
-  mutate(across(where(is.numeric), ~replace_na(., 0)))
+# Show sample
+cat("\nSample of processed data:\n")
+prog_data %>%
+  filter(Cases_Weekly > 0) %>%
+  select(Date, ZIP_Code, Cases_Weekly, Cases_Cumulative) %>%
+  head(5) %>%
+  print()
 
-# Load and process the geographic boundaries
-boundaries_raw <- read.csv("Boundaries_-_ZIP_Codes_20251123.csv", stringsAsFactors = FALSE)
+if (length(unique(prog_data$ZIP_Code)) < 10) {
+  cat("\n⚠️ WARNING: Only", length(unique(prog_data$ZIP_Code)), "ZIP codes found!\n")
+  cat("Expected around 59 ZIP codes.\n")
+  cat("Check that the file was downloaded correctly.\n\n")
+}
+
+cat("\n")
+
+# ============================================
+# PART 3: Geographic Boundaries
+# ============================================
+cat("Loading geographic boundaries...\n")
+
+boundaries_raw <- read.csv("Boundaries_-_ZIP_Codes_20251123.csv", 
+                           stringsAsFactors = FALSE)
 
 chicago_boundaries <- st_as_sf(boundaries_raw, wkt = "the_geom", crs = 4326) %>%
   select(
@@ -84,19 +125,29 @@ chicago_boundaries <- st_as_sf(boundaries_raw, wkt = "the_geom", crs = 4326) %>%
   ) %>%
   mutate(ZIP_Code = as.character(ZIP_Code))
 
-# Create folder id it doesn't exist
-if (!dir.exists("data")) {
-  dir.create("data")
-}
+cat("✓ Boundaries loaded for", nrow(chicago_boundaries), "ZIP codes\n\n")
 
-# create geographic folder is it doesn't exists
-if (!dir.exists("geographic")) {
-  dir.create("geographic")
-}
+# ============================================
+# PART 4: Save Files
+# ============================================
+cat("Saving data files...\n")
 
-#Save the combined ZIP code data as csv
-write.csv(zip_data_combined, "data/chicago_zip_data.csv", row.names = FALSE)
+if (!dir.exists("data")) dir.create("data")
+if (!dir.exists("geographic")) dir.create("geographic")
 
-# Save the geo boundaries as GeoJSON
-st_write(chicago_boundaries, "geographic/chicago_zip_boundaries.geojson", delete_dsn = TRUE, quiet = TRUE)
+write.csv(vax_data, "data/chicago_zip_vaccination.csv", row.names = FALSE)
+cat("✓ Saved: data/chicago_zip_vaccination.csv\n")
 
+write.csv(prog_data, "data/chicago_zip_progression.csv", row.names = FALSE)
+cat("✓ Saved: data/chicago_zip_progression.csv\n")
+
+st_write(chicago_boundaries, "geographic/chicago_zip_boundaries.geojson", 
+         delete_dsn = TRUE, quiet = TRUE)
+cat("✓ Saved: geographic/chicago_zip_boundaries.geojson\n")
+
+cat("\n=== SUMMARY ===\n")
+cat("Vaccination: ", nrow(vax_data), "rows,", length(unique(vax_data$ZIP_Code)), "ZIP codes\n")
+cat("Progression: ", nrow(prog_data), "rows,", length(unique(prog_data$ZIP_Code)), "ZIP codes\n")
+cat("Boundaries:  ", nrow(chicago_boundaries), "ZIP codes\n\n")
+
+cat("✓ All done! You can now run your Shiny app.\n")

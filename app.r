@@ -86,23 +86,27 @@ ui <- page_navbar(
       sidebarPanel(
         h4("Map Controls"),
         
+        # NEW: Toggle between vaccination and COVID progression
+        radioButtons(
+          "map_type",
+          label = "Select Map Type",
+          choices = c(
+            "Vaccination Progress" = "vaccination",
+            "COVID-19 Spread" = "covid"
+          ),
+          selected = "vaccination"
+        ),
+        
+        hr(),
+        
         uiOutput("zip_date_selector"),
         
         p("Select a week to view data. Data is reported weekly."),
         
         hr(),
         
-        selectInput(
-          "map_metric",
-          label = "Select Vaccination Metric",
-          choices = c(
-            "1st Dose Rate (%)" = "Vaccinated_1st_Dose",
-            "Fully Vaccinated Rate (%)" = "Fully_Vaccinated",
-            "Booster Rate (%)" = "Boosted",
-            "Total Doses Given" = "Total_Doses"
-          ),
-          selected = "Fully_Vaccinated"
-        ),
+        # Dynamic metric selector - REPLACES the static selectInput
+        uiOutput("metric_selector"),
         
         hr(),
         
@@ -133,16 +137,17 @@ ui <- page_navbar(
           style = "background-color: #f0f0f0; padding: 10px; border-radius: 5px;",
           h5("How to Use:"),
           tags$ul(
-            tags$li("Use the dropdown to select different weeks"),
-            tags$li("Choose different vaccination metrics to visualize"),
+            tags$li("Toggle between Vaccination and COVID-19 data"),
+            tags$li("Use the slider to select different weeks"),
+            tags$li("Choose different metrics to visualize"),
             tags$li("Hover over ZIP codes for detailed information"),
-            tags$li("Click a ZIP code to see its vaccination trend over time")
+            tags$li("Click a ZIP code to see its trend over time")
           )
         )
       ),
       
       mainPanel(
-        h3("COVID-19 Vaccination Rates by ZIP Code in Chicago"),
+        uiOutput("map_title"),
         p("Interactive map showing vaccination rates across Chicago ZIP codes over time."),
         
         leafletOutput("chicagoZipMap", height = "600px"),
@@ -217,17 +222,28 @@ server <- shinyServer(function(input, output, session) {
     mutate(Date = as.Date(Date))
   
   # Load ZIP code data and boundaries
-  Chicago$ZipData <- tryCatch({
-    read.csv("data/chicago_zip_data.csv", stringsAsFactors = FALSE) %>%
-      mutate(Date = as.Date(Date))
+  Chicago$ZipVaccination <- tryCatch({
+    read.csv("data/chicago_zip_vaccination.csv", stringsAsFactors = FALSE) %>%
+      mutate(Date = as.Date(Date), ZIP_Code = as.character(ZIP_Code))
   }, error = function(e) {
-    warning("ZIP code data not found. Please run prepare_zip_data.r first.")
+    warning("ZIP vaccination data not found. Please run prepare_zip_data.r first.")
+    NULL
+  })
+  
+  # Load ZIP code COVID PROGRESSION data
+  Chicago$ZipProgression <- tryCatch({
+    read.csv("data/chicago_zip_progression.csv", stringsAsFactors = FALSE) %>%
+      mutate(Date = as.Date(Date), ZIP_Code = as.character(ZIP_Code))
+  }, error = function(e) {
+    warning("ZIP progression data not found. Please run prepare_zip_data.r first.")
     NULL
   })
   
   Chicago$Boundaries <- tryCatch({
-    st_read("geographic/chicago_zip_boundaries.geojson", quiet = TRUE)
-  }, error = function(e) {
+  boundaries <- st_read("geographic/chicago_zip_boundaries.geojson", quiet = TRUE)
+  boundaries$ZIP_Code <- as.character(boundaries$ZIP_Code)
+  boundaries
+}, error = function(e) {
     warning("Geographic boundaries not found. Please run prepare_zip_data.r first.")
     NULL
   })
@@ -237,15 +253,28 @@ server <- shinyServer(function(input, output, session) {
   
   # Dynamic date selector - slider that snaps to available dates
   output$zip_date_selector <- renderUI({
-    if (is.null(Chicago$ZipData)) {
+    # Use the appropriate dataset based on map type
+    data_to_use <- if (!is.null(input$map_type) && input$map_type == "covid") {
+      Chicago$ZipProgression
+    } else {
+      Chicago$ZipVaccination
+    }
+    
+    if (is.null(data_to_use)) {
       return(p("Loading data..."))
     }
     
-    # Get all available dates from the data
-    available_dates <- sort(unique(as.Date(Chicago$ZipData$Date)))
+    # Get all available dates from the appropriate dataset
+    available_dates <- sort(unique(as.Date(data_to_use$Date)))
     
-    # Find a good default date (around middle of 2021)
-    default_date <- available_dates[which.min(abs(available_dates - as.Date("2021-06-01")))]
+    # Find a good default date
+    default_date <- if (!is.null(input$map_type) && input$map_type == "covid") {
+      # For COVID, start with early 2021 when there was activity
+      available_dates[which.min(abs(available_dates - as.Date("2021-03-01")))]
+    } else {
+      # For vaccination, start with mid-2021
+      available_dates[which.min(abs(available_dates - as.Date("2021-06-01")))]
+    }
     
     sliderInput(
       "zip_date",
@@ -256,6 +285,45 @@ server <- shinyServer(function(input, output, session) {
       timeFormat = "%Y-%m-%d",
       animate = animationOptions(interval = 500, loop = TRUE)
     )
+  })
+  
+  # Dynamic map title based on map type
+  output$map_title <- renderUI({
+    req(input$map_type)
+    if (input$map_type == "vaccination") {
+      h3("COVID-19 Vaccination Rates by ZIP Code in Chicago")
+    } else {
+      h3("COVID-19 Spread and Impact by ZIP Code in Chicago")
+    }
+  })
+  
+  # Dynamic metric selector based on map type
+  output$metric_selector <- renderUI({
+    req(input$map_type)
+    if (input$map_type == "vaccination") {
+      selectInput(
+        "map_metric",
+        label = "Select Vaccination Metric",
+        choices = c(
+          "1st Dose Rate (%)" = "Vaccinated_1st_Dose",
+          "Fully Vaccinated Rate (%)" = "Fully_Vaccinated",
+          "Booster Rate (%)" = "Boosted",
+          "Total Doses Given" = "Total_Doses"
+        ),
+        selected = "Fully_Vaccinated"
+      )
+    } else {
+      selectInput(
+        "map_metric",
+        label = "Select COVID-19 Metric",
+        choices = c(
+          "Weekly Cases" = "Cases_Weekly",
+          "Weekly Deaths" = "Deaths_Weekly",
+          "Case Rate (per 100k)" = "Case_Rate_Weekly"
+        ),
+        selected = "Cases_Weekly"
+      )
+    }
   })
   
   # === UI ===
@@ -482,111 +550,162 @@ server <- shinyServer(function(input, output, session) {
   # Main ZIP code map
   output$chicagoZipMap <- renderLeaflet({
     # Check if data is loaded
-    if (is.null(Chicago$ZipData) || is.null(Chicago$Boundaries)) {
+    if (is.null(Chicago$ZipVaccination) || is.null(Chicago$ZipProgression) || is.null(Chicago$Boundaries)) {
       # Return an empty leaflet map with message
       leaflet() %>%
         addTiles() %>%
         setView(lng = -87.6298, lat = 41.8781, zoom = 10)
-    } else if (is.null(input$map_metric)) {
+    } else if (is.null(input$map_metric) || is.null(input$map_type)) {
       # Map metric not selected yet
       leaflet() %>%
         addTiles() %>%
         setView(lng = -87.6298, lat = 41.8781, zoom = 10)
     } else {
-      # Data is loaded and metric is selected, render the map
-      
-      # Find the nearest available date (since slider might pick in-between dates)
-      selected_date <- as.Date(input$zip_date)
-      available_dates <- sort(unique(as.Date(Chicago$ZipData$Date)))
-      nearest_date <- available_dates[which.min(abs(available_dates - selected_date))]
-      
-      map_data <- Chicago$ZipData %>%
-        mutate(Date = as.Date(Date)) %>%
-        filter(Date == nearest_date)
-      
-      map_sf <- Chicago$Boundaries %>%
-        left_join(map_data, by = "ZIP_Code")
-      
-      metric_values <- map_sf[[input$map_metric]]
-      
-      if (input$color_scheme == "viridis") {
-        pal <- colorNumeric(
-          palette = viridis::viridis(256),
-          domain = metric_values,
-          na.color = "#808080"
-        )
-      } else {
-        pal <- colorNumeric(
-          palette = input$color_scheme,
-          domain = metric_values,
-          na.color = "#808080"
-        )
-      }
-      
-      metric_label <- switch(input$map_metric,
-                             "Vaccinated_1st_Dose" = "1st Dose Rate (%)",
-                             "Fully_Vaccinated" = "Fully Vaccinated (%)",
-                             "Boosted" = "Booster Rate (%)",
-                             "Total_Doses" = "Total Doses",
-                             "1st Dose Rate (%)"  # default
-      )
-      
-      map_output <- leaflet(map_sf) %>%
-        addProviderTiles(providers$CartoDB.Positron) %>%
-        addPolygons(
-          fillColor = ~pal(metric_values),
-          weight = 1.5,
-          opacity = 1,
-          color = "white",
-          fillOpacity = 0.7,
-          highlightOptions = highlightOptions(
-            weight = 3,
-            color = "#666",
-            fillOpacity = 0.9,
-            bringToFront = TRUE
-          ),
-          label = ~paste0(
-            "<strong>ZIP Code: ", ZIP_Code, "</strong><br>",
-            metric_label, ": ", 
-            ifelse(is.na(metric_values), "No data", round(metric_values, 2))
-          ) %>% lapply(htmltools::HTML),
-          labelOptions = labelOptions(
-            style = list("font-weight" = "normal", padding = "3px 8px"),
-            textsize = "13px",
-            direction = "auto"
-          ),
-          layerId = ~ZIP_Code
-        )
-      
-      # Add ZIP code labels if enabled
-      if(input$show_labels) {
-        map_output <- map_output %>%
-          addLabelOnlyMarkers(
-            data = st_centroid(st_geometry(map_sf)),
-            label = map_sf$ZIP_Code,
+      # Use tryCatch to catch any errors
+      tryCatch({
+        # Select the appropriate dataset based on map type
+        current_data <- if (input$map_type == "vaccination") {
+          Chicago$ZipVaccination
+        } else {
+          Chicago$ZipProgression
+        }
+        
+        # Find the nearest available date
+        selected_date <- as.Date(input$zip_date)
+        available_dates <- sort(unique(as.Date(current_data$Date)))
+        nearest_date <- available_dates[which.min(abs(available_dates - selected_date))]
+        
+        map_data <- current_data %>%
+          mutate(Date = as.Date(Date)) %>%
+          filter(Date == nearest_date)
+        
+        map_sf <- Chicago$Boundaries %>%
+          left_join(map_data, by = "ZIP_Code")
+        
+        # Get metric values and clean them thoroughly
+        metric_values <- as.numeric(map_sf[[input$map_metric]])
+        
+        # Replace any problematic values with NA
+        metric_values[is.na(metric_values)] <- NA
+        metric_values[is.nan(metric_values)] <- NA
+        metric_values[is.infinite(metric_values)] <- NA
+        metric_values[metric_values < 0] <- NA  # Remove negative values
+        
+        # Check if we have any valid data
+        valid_values <- metric_values[!is.na(metric_values)]
+        
+        if (length(valid_values) == 0) {
+          # No valid data - return message
+          return(
+            leaflet() %>%
+              addTiles() %>%
+              setView(lng = -87.6298, lat = 41.8781, zoom = 10) %>%
+              addControl(html = "<div style='background:white; padding:10px; border-radius:5px;'>
+                       <strong>No data available for this date/metric</strong><br>
+                       Try selecting a different date or metric.</div>",
+                         position = "topright")
+          )
+        }
+        
+        # Create color palette with the valid range
+        if (input$color_scheme == "viridis") {
+          pal <- colorNumeric(
+            palette = viridis::viridis(256),
+            domain = range(valid_values, na.rm = TRUE),
+            na.color = "#808080"
+          )
+        } else {
+          pal <- colorNumeric(
+            palette = input$color_scheme,
+            domain = range(valid_values, na.rm = TRUE),
+            na.color = "#808080"
+          )
+        }
+        
+        # Dynamic metric label based on map type
+        metric_label <- if (input$map_type == "vaccination") {
+          switch(input$map_metric,
+                 "Vaccinated_1st_Dose" = "1st Dose Rate (%)",
+                 "Fully_Vaccinated" = "Fully Vaccinated (%)",
+                 "Boosted" = "Booster Rate (%)",
+                 "Total_Doses" = "Total Doses",
+                 "Metric")
+        } else {
+          switch(input$map_metric,
+                 "Cases_Weekly" = "Weekly Cases",
+                 "Deaths_Weekly" = "Weekly Deaths",
+                 "Case_Rate_Weekly" = "Case Rate (per 100k)",
+                 "Metric")
+        }
+        
+        # Create map
+        map_output <- leaflet(map_sf) %>%
+          addProviderTiles(providers$CartoDB.Positron) %>%
+          addPolygons(
+            fillColor = ~pal(metric_values),
+            weight = 1.5,
+            opacity = 1,
+            color = "white",
+            fillOpacity = 0.7,
+            highlightOptions = highlightOptions(
+              weight = 3,
+              color = "#666",
+              fillOpacity = 0.9,
+              bringToFront = TRUE
+            ),
+            label = ~paste0(
+              "<strong>ZIP Code: ", ZIP_Code, "</strong><br>",
+              metric_label, ": ", 
+              ifelse(is.na(metric_values), "No data", 
+                     format(round(metric_values, 1), big.mark = ","))
+            ) %>% lapply(htmltools::HTML),
             labelOptions = labelOptions(
-              noHide = TRUE,
-              direction = "center",
-              textOnly = TRUE,
-              style = list(
-                "color" = "#000000",
-                "font-size" = "10px",
-                "font-weight" = "bold"
+              style = list("font-weight" = "normal", padding = "3px 8px"),
+              textsize = "13px",
+              direction = "auto"
+            ),
+            layerId = ~ZIP_Code
+          )
+        
+        # Add ZIP code labels if enabled
+        if(input$show_labels) {
+          map_output <- map_output %>%
+            addLabelOnlyMarkers(
+              data = st_centroid(st_geometry(map_sf)),
+              label = map_sf$ZIP_Code,
+              labelOptions = labelOptions(
+                noHide = TRUE,
+                direction = "center",
+                textOnly = TRUE,
+                style = list(
+                  "color" = "#000000",
+                  "font-size" = "10px",
+                  "font-weight" = "bold"
+                )
               )
             )
+        }
+        
+        # Add legend
+        map_output %>%
+          addLegend(
+            pal = pal,
+            values = valid_values,
+            opacity = 0.7,
+            title = metric_label,
+            position = "bottomright",
+            na.label = "No data"
           )
-      }
-      
-      # Add legend
-      map_output %>%
-        addLegend(
-          pal = pal,
-          values = ~metric_values,
-          opacity = 0.7,
-          title = metric_label,
-          position = "bottomright",
-          na.label = "No data"
-        )
+        
+      }, error = function(e) {
+        # If any error occurs, return a map with error message
+        leaflet() %>%
+          addTiles() %>%
+          setView(lng = -87.6298, lat = 41.8781, zoom = 10) %>%
+          addControl(html = paste0("<div style='background:white; padding:10px; border-radius:5px;'>
+                   <strong>Error rendering map</strong><br>", e$message, "</div>"),
+                     position = "topright")
+      })
     }
   })
   
@@ -600,13 +719,20 @@ server <- shinyServer(function(input, output, session) {
   
   # Summary statistics for the map
   output$map_stats_date <- renderText({
-    if (is.null(Chicago$ZipData)) return("Data not loaded")
+    if (is.null(Chicago$ZipVaccination) || is.null(Chicago$ZipProgression)) return("Data not loaded")
     
-    req(input$map_metric, input$zip_date)
+    req(input$map_metric, input$zip_date, input$map_type)
+    
+    # Select appropriate dataset
+    current_data <- if (input$map_type == "vaccination") {
+      Chicago$ZipVaccination
+    } else {
+      Chicago$ZipProgression
+    }
     
     # Snap to nearest available date
     selected_date <- as.Date(input$zip_date)
-    available_dates <- sort(unique(as.Date(Chicago$ZipData$Date)))
+    available_dates <- sort(unique(as.Date(current_data$Date)))
     nearest_date <- available_dates[which.min(abs(available_dates - selected_date))]
     
     date_str <- format(nearest_date, "%B %d, %Y")
@@ -614,16 +740,23 @@ server <- shinyServer(function(input, output, session) {
   })
   
   output$map_stats_total <- renderText({
-    if (is.null(Chicago$ZipData)) return("Data not loaded")
+    if (is.null(Chicago$ZipVaccination) || is.null(Chicago$ZipProgression)) return("Data not loaded")
     
-    req(input$map_metric, input$zip_date)
+    req(input$map_metric, input$zip_date, input$map_type)
+    
+    # Select appropriate dataset
+    current_data <- if (input$map_type == "vaccination") {
+      Chicago$ZipVaccination
+    } else {
+      Chicago$ZipProgression
+    }
     
     # Snap to nearest available date
     selected_date <- as.Date(input$zip_date)
-    available_dates <- sort(unique(as.Date(Chicago$ZipData$Date)))
+    available_dates <- sort(unique(as.Date(current_data$Date)))
     nearest_date <- available_dates[which.min(abs(available_dates - selected_date))]
     
-    data <- Chicago$ZipData %>%
+    data <- current_data %>%
       mutate(Date = as.Date(Date)) %>%
       filter(Date == nearest_date)
     
@@ -641,16 +774,23 @@ server <- shinyServer(function(input, output, session) {
   })
   
   output$map_stats_avg <- renderText({
-    if (is.null(Chicago$ZipData)) return("Data not loaded")
+    if (is.null(Chicago$ZipVaccination) || is.null(Chicago$ZipProgression)) return("Data not loaded")
     
-    req(input$map_metric, input$zip_date)
+    req(input$map_metric, input$zip_date, input$map_type)
+    
+    # Select appropriate dataset
+    current_data <- if (input$map_type == "vaccination") {
+      Chicago$ZipVaccination
+    } else {
+      Chicago$ZipProgression
+    }
     
     # Snap to nearest available date
     selected_date <- as.Date(input$zip_date)
-    available_dates <- sort(unique(as.Date(Chicago$ZipData$Date)))
+    available_dates <- sort(unique(as.Date(current_data$Date)))
     nearest_date <- available_dates[which.min(abs(available_dates - selected_date))]
     
-    data <- Chicago$ZipData %>%
+    data <- current_data %>%
       mutate(Date = as.Date(Date)) %>%
       filter(Date == nearest_date)
     
@@ -664,16 +804,23 @@ server <- shinyServer(function(input, output, session) {
   
   # Time series for selected ZIP code
   output$selectedZipTimeSeries <- renderPlot({
-    if (is.null(Chicago$ZipData) || is.null(selected_zip())) {
+    if (is.null(Chicago$ZipVaccination) || is.null(Chicago$ZipProgression) || is.null(selected_zip())) {
       ggplot() +
         annotate("text", x = 0.5, y = 0.5, 
                  label = "Click on a ZIP code in the map to see its time series",
                  size = 6, color = "gray50") +
         theme_void()
     } else {
-      req(input$map_metric)
+      req(input$map_metric, input$map_type)
       
-      zip_data <- Chicago$ZipData %>%
+      # Select appropriate dataset
+      current_data <- if (input$map_type == "vaccination") {
+        Chicago$ZipVaccination
+      } else {
+        Chicago$ZipProgression
+      }
+      
+      zip_data <- current_data %>%
         filter(ZIP_Code == selected_zip())
       
       if (nrow(zip_data) == 0) {
@@ -683,17 +830,27 @@ server <- shinyServer(function(input, output, session) {
                    size = 6, color = "gray50") +
           theme_void()
       } else {
-        metric_label <- switch(input$map_metric,
-                               "Vaccinated_1st_Dose" = "1st Dose Rate (%)",
-                               "Fully_Vaccinated" = "Fully Vaccinated (%)",
-                               "Boosted" = "Booster Rate (%)",
-                               "Total_Doses" = "Total Doses",
-                               "1st Dose Rate (%)"  # default
-        )
+        metric_label <- if (input$map_type == "vaccination") {
+          switch(input$map_metric,
+                 "Vaccinated_1st_Dose" = "1st Dose Rate (%)",
+                 "Fully_Vaccinated" = "Fully Vaccinated (%)",
+                 "Boosted" = "Booster Rate (%)",
+                 "Total_Doses" = "Total Doses",
+                 "Metric")
+        } else {
+          switch(input$map_metric,
+                 "Cases_Weekly" = "Weekly Cases",
+                 "Deaths_Weekly" = "Weekly Deaths",
+                 "Case_Rate_Weekly" = "Case Rate (per 100k)",
+                 "Metric")
+        }
+        
+        # Choose color based on map type
+        plot_color <- if (input$map_type == "vaccination") "#2E86AB" else "#e74c3c"
         
         ggplot(zip_data, aes(x = Date, y = .data[[input$map_metric]])) +
-          geom_line(color = "#2E86AB", size = 1) +
-          geom_area(fill = "#2E86AB", alpha = 0.2) +
+          geom_line(color = plot_color, size = 1) +
+          geom_area(fill = plot_color, alpha = 0.2) +
           geom_vline(xintercept = as.Date(input$zip_date), 
                      linetype = "dashed", color = "red", size = 0.8) +
           geom_point(data = zip_data %>% filter(Date == as.Date(input$zip_date)),
