@@ -22,6 +22,7 @@ install.packages("bslib")
 install.packages("tidyverse")
 install.packages("sf")
 install.packages("leaflet")
+install.packages("plotly")
 ```
 
 ### 3. Prepare the Data (IMPORTANT!)
