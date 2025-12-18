@@ -32,6 +32,11 @@ vax_data <- vax_data_raw %>%
     Total_Doses = as.numeric(Total_Doses),
     Population = as.numeric(Population)
   ) %>%
+  mutate(
+    Vaccinated_1st_Dose = pmin(Vaccinated_1st_Dose, 100, na.rm = TRUE),
+    Fully_Vaccinated = pmin(Fully_Vaccinated, 100, na.rm = TRUE),
+    Boosted = pmin(Boosted, 100, na.rm = TRUE)
+  ) %>%
   filter(!is.na(ZIP_Code), !is.na(Date)) %>%
   arrange(Date, ZIP_Code)
 

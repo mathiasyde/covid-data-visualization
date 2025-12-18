@@ -108,6 +108,9 @@ ui <- page_navbar(
         # Dynamic metric selector - REPLACES the static selectInput
         uiOutput("metric_selector"),
         
+        # Information box explaining the selected metric
+        uiOutput("metric_info_box"),
+        
         hr(),
         
         h5("Display Options"),
@@ -307,8 +310,7 @@ server <- shinyServer(function(input, output, session) {
         choices = c(
           "1st Dose Rate (%)" = "Vaccinated_1st_Dose",
           "Fully Vaccinated Rate (%)" = "Fully_Vaccinated",
-          "Booster Rate (%)" = "Boosted",
-          "Total Doses Given" = "Total_Doses"
+          "Booster Rate (%)" = "Boosted"
         ),
         selected = "Fully_Vaccinated"
       )
@@ -324,6 +326,53 @@ server <- shinyServer(function(input, output, session) {
         selected = "Cases_Weekly"
       )
     }
+  })
+  
+  #Information box explaining the metric
+  output$metric_info_box <- renderUI({
+    req(input$map_type, input$map_metric)
+    
+    # Define explanations for each metric
+    if (input$map_type == "vaccination") {
+      explanation <- switch(input$map_metric,
+                            "Vaccinated_1st_Dose" = "Percentage of the ZIP code population that received at least one vaccine dose.",
+                            "Fully_Vaccinated" = "Percentage of the ZIP code population that completed their vaccination series (typically 2 doses).",
+                            "Boosted" = "Percentage of the ZIP code population that received a booster shot.",
+                            "Total_Doses" = "Total number of vaccine doses administered in this ZIP code (includes 1st, 2nd, and booster doses).",
+                            "Select a metric to see its explanation."
+      )
+      icon_name <- "syringe"
+      box_color <- "#e8f5e9"  # Light green
+    } else {
+      explanation <- switch(input$map_metric,
+                            "Cases_Weekly" = "Number of new COVID-19 cases reported in this ZIP code during the selected week.",
+                            "Deaths_Weekly" = "Number of COVID-19 deaths reported in this ZIP code during the selected week.",
+                            "Case_Rate_Weekly" = "Weekly COVID-19 cases per 100,000 residents. This population-adjusted rate allows fair comparison between ZIP codes of different sizes.",
+                            "Select a metric to see its explanation."
+      )
+      icon_name <- "info-circle"
+      box_color <- "#fff3e0"  # Light orange
+    }
+    
+    # Create the info box
+    div(
+      style = paste0("background-color: ", box_color, "; padding: 12px; border-radius: 5px; border-left: 4px solid #2196F3; margin-top: 10px;"),
+      tags$div(
+        style = "display: flex; align-items: start;",
+        tags$div(
+          style = "margin-right: 10px; margin-top: 2px;",
+          icon(icon_name, style = "color: #2196F3;")
+        ),
+        tags$div(
+          style = "flex: 1;",
+          tags$strong("What this means:"),
+          tags$p(
+            style = "margin: 5px 0 0 0; font-size: 13px; line-height: 1.4;",
+            explanation
+          )
+        )
+      )
+    )
   })
   
   # === UI ===
@@ -628,7 +677,6 @@ server <- shinyServer(function(input, output, session) {
                  "Vaccinated_1st_Dose" = "1st Dose Rate (%)",
                  "Fully_Vaccinated" = "Fully Vaccinated (%)",
                  "Boosted" = "Booster Rate (%)",
-                 "Total_Doses" = "Total Doses",
                  "Metric")
         } else {
           switch(input$map_metric,
@@ -835,7 +883,6 @@ server <- shinyServer(function(input, output, session) {
                  "Vaccinated_1st_Dose" = "1st Dose Rate (%)",
                  "Fully_Vaccinated" = "Fully Vaccinated (%)",
                  "Boosted" = "Booster Rate (%)",
-                 "Total_Doses" = "Total Doses",
                  "Metric")
         } else {
           switch(input$map_metric,
