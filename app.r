@@ -8,6 +8,12 @@ library(tidyr)
 library(sf)
 library(leaflet)
 library(plotly)
+library(viridis)
+library(lubridate)
+library(readr)
+library(ggstream)
+library(scales)
+library(shinycssloaders)
 
 ui <- page_navbar(
   title = "Exploratory visualization of the COVID-19 pandemic in the U.S.",
@@ -76,6 +82,57 @@ ui <- page_navbar(
         # Graph 2: Risk Reduction Analysis
         h4("2. Vaccine Risk Reduction by Outcome Type"),
         plotOutput("riskReductionPlot", height = "400px")
+      )
+    )
+  ),
+  
+  tabPanel(
+    "Vaccine Effectiveness - Vaccine Waning",
+    sidebarLayout(
+      sidebarPanel(
+        p("3 graphs are displayed on this page. They show the derived value 
+        VE (Vaccine Effectiveness) that is used by the CDC and WHO to calculated how 
+        effective a vaccine is. This is shown over time, and devided into age groups"),
+        p("This is used to visualize potential vaccine waning over time"),
+        p("Some of the graphs are very heavy, and load slowly so be patient. 
+          Any changes in the date range below, will reload the graphs."),
+        p("The grahps are interactable and the legend to the right of the visualization works to filter age groups shown on the graph."), 
+        dateRangeInput(
+          "ve_date_range",
+          "Date Range",
+          start = "2021-01-01",
+          end = "2023-06-30"
+        ),
+        br(),
+        input_switch("omicron_line", "Add Omicron peak line"),
+        p(" *The Omicron peak line overlay is very unstable on the stream graph
+          so it isn't shown on that."),
+        checkboxGroupInput(
+          "ve_age_groups",
+          "Age group filter (spaghetti Graph)",
+          choices = c("All ages (combined)", "0-4", "5-11", "12-17", "18-29", "30-49", "50-64", "65-79", "80+"),
+          selected = c("All ages (combined)", "0-4", "5-11", "12-17", "18-29", "30-49", "50-64", "65-79", "80+")
+        )
+      ),
+      mainPanel(
+        conditionalPanel(
+          condition = "!output.ve_stream",
+          p("When the bars below are moving, the graphes are loading. Please wait...")
+        ),
+        h3("Exploring vaccination waning over time"),
+        br(),
+        p("This data shows the calculated VE = (1 - (Vaccinated Rate / Unvaccinated Rate)) * 100. 
+        in Chicago durring the covid pandemic."),
+        br(),
+        h5("1. Spaghetti  graph"),
+        plotlyOutput("ve_spaghetti", height = "800px")|> withSpinner(),
+        br(),
+        h5("2. Streamgraph"),
+        plotlyOutput("ve_stream", height = "600px")|> withSpinner(),
+        p("*Streamgraph shows relative VE contribution by age group. Vertical scale on the y-axis does not represent percentage."),
+        br(),
+        h5("3. Area graph"),
+        plotlyOutput("ve_area", height = "600px")|> withSpinner()
       )
     )
   ),
@@ -223,6 +280,10 @@ server <- shinyServer(function(input, output, session) {
   
   Chicago$Population <- read.csv("data/chicago_population.csv", stringsAsFactors = FALSE) |>
     mutate(Date = as.Date(Date))
+  
+  Chicago$Raw <- readr::read_csv("datasets/chicago.csv", show_col_types = FALSE) %>%
+    mutate(week_end = mdy(`Week End`))
+  
   
   # Load ZIP code data and boundaries
   Chicago$ZipVaccination <- tryCatch({
@@ -425,6 +486,197 @@ server <- shinyServer(function(input, output, session) {
       labs(y = "Number of Outcomes (Unvaccinated vs Vaccinated)", x="") +
       facet_wrap(~Outcome, scales = "free_y", ncol = 1)
   })
+  
+  #Jonas Graph/Plots
+  ve_base <- reactive({
+    req(Chicago$Raw)
+    
+    Chicago$Raw %>%
+      filter(
+        Outcome == "Cases",
+        week_end >= as.Date(input$ve_date_range[1]),
+        week_end <= as.Date(input$ve_date_range[2]),
+        !is.na(`Unvaccinated Rate`),
+        `Unvaccinated Rate` > 0,
+        !is.na(`Vaccinated Rate`)
+      ) %>%
+      mutate(
+        VE = (1 - (`Vaccinated Rate` / `Unvaccinated Rate`)) * 100,
+        VE = pmax(pmin(VE, 100), -100)
+      ) %>%
+      rename(
+        Date = week_end
+      )
+  })
+  
+  
+  
+  #Spaghetti Plot
+  output$ve_spaghetti <- renderPlotly({
+    d <- ve_base()
+    req(nrow(d) > 0)
+    
+    d <- d %>%
+      mutate(`Age Group` = ifelse(
+        `Age Group` == "All",
+        "All ages (combined)",
+        `Age Group`
+      ))
+    
+    ve_all <- d %>% filter(`Age Group` == "All ages (combined)")
+    ve_age <- d %>% filter(`Age Group` != "All ages (combined)")
+    ve_combined <- bind_rows(ve_age, ve_all)
+    
+    req(input$ve_age_groups)
+    ve_combined <- ve_combined %>% filter(`Age Group` %in% input$ve_age_groups)
+    req(nrow(ve_combined) > 0)
+    
+    desired_order <- c(
+      "0-4", "5-11", "12-17", "18-29",
+      "30-49", "50-64", "65-79", "80+",
+      "All ages (combined)"
+    )
+    
+    
+    ve_combined <- ve_combined %>%
+      mutate(`Age Group` = factor(`Age Group`, levels = desired_order))
+    
+    tmp <- ve_combined %>% mutate(`Age Group 2` = `Age Group`)
+    
+    p <- ggplot(ve_combined, aes(x = Date, y = VE)) +
+      labs(x = "Date", y = "Vaccination effectiveness (%)") +
+      geom_line(
+        data = tmp %>% select(-`Age Group`),
+        aes(group = `Age Group 2`),
+        color = "grey",
+        linewidth = 0.5,
+        alpha = 0.5
+      ) +
+      geom_line(aes(color = `Age Group`), linewidth = 1.2) +
+      scale_color_viridis_d() +
+      facet_wrap(~ `Age Group`) +
+      theme_minimal() +
+      theme(legend.position = "none") +
+      { if (isTRUE(input$omicron_line))
+        geom_vline(
+          xintercept = as.Date("2022-01-01"),
+          linetype = "dashed",
+          color = "red",
+          linewidth = 0.5
+        )
+      } +
+      { if (isTRUE(input$omicron_line))
+        geom_text(
+          aes(
+            x = as.Date("2022-01-01"),
+            y = 0,
+            label = "Omicron variant peak"
+          ),
+          vjust = -1,
+          color = "red"
+        )
+      }
+    
+    ggplotly(p)
+  })
+  
+  
+  
+  #Streamgraph
+  output$ve_stream <- renderPlotly({
+    d <- ve_base() %>% filter(`Age Group` != "All")
+    req(nrow(d) > 0)
+    
+    ve_stream <- d %>%
+      select(Date, `Age Group` = `Age Group`, VE) %>%
+      group_by(Date, `Age Group`) %>%
+      summarise(VE= mean(VE, na.rm = TRUE), .groups = "drop") %>%
+      mutate(age_lower = readr::parse_number(`Age Group`)) %>%
+      arrange(age_lower, `Age Group`, Date) %>%
+      mutate(`Age Group` = factor(`Age Group`, levels = unique(`Age Group`))) %>%
+      group_by(`Age Group`) %>%
+      arrange(Date, .by_group = TRUE) %>%
+      mutate(idx = row_number()) %>%
+      filter(idx %% 2 == 0) %>%
+      ungroup()
+    
+    p <- ggplot(
+      ve_stream,
+      aes(
+        x = Date,
+        y = VE,
+        fill = `Age Group`,
+        text = paste0(
+          "Age group: ", `Age Group`,
+          "<br>Date: ", Date,
+          "<br>VE: ", round(VE, 1), "%"
+        )
+      )
+    ) +
+      geom_stream(bw = 0.7) +
+      scale_fill_viridis_d(option = "plasma") +
+      theme_minimal()
+    
+    ggplotly(p, tooltip = "text")
+  })
+  
+  
+  
+  #Area Plot
+  output$ve_area <- renderPlotly({
+    d <- ve_base() %>% filter(`Age Group` != "All")
+    req(nrow(d) > 0)
+    
+    ve_area <- d %>%
+      mutate(age_lower = readr::parse_number(`Age Group`))
+    
+    order <- ve_area %>%
+      distinct(`Age Group`, age_lower) %>%
+      arrange(age_lower) %>%
+      pull(`Age Group`)
+    
+    ve_area$`Age Group` <- factor(ve_area$`Age Group`, levels = order)
+    
+    omicron_date <- as.Date("2022-01-01")
+    
+    p <- ggplot(ve_area, aes(Date, VE, fill = `Age Group`)) +
+      geom_area() +
+      labs(y= "Vaccination effectiveness (%)") +
+      scale_fill_viridis_d() +
+      theme_minimal() +
+      { if (isTRUE(input$omicron_line))
+        geom_vline(
+          xintercept = omicron_date,
+          linetype = "dashed",
+          color = "red",
+          linewidth = 0.5
+        )
+      }
+    
+    g <- ggplotly(p)
+    
+    if (isTRUE(input$omicron_line)) {
+      g <- g %>% layout(
+        annotations = list(
+          list(
+            x = format(omicron_date, "%Y-%m-%d"),
+            xref = "x",
+            y = 1,
+            yref = "paper",
+            text = "Omicron variant peak",
+            showarrow = FALSE,
+            yanchor = "bottom",
+            font = list(color = "red")
+          )
+        )
+      )
+    }
+    
+    g
+  })
+  
+  
+  
   
   #Michelle Graphs/Plots
   # GRAPH 1: Vaccine Rollout Timeline

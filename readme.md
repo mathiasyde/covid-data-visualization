@@ -23,6 +23,14 @@ install.packages("tidyverse")
 install.packages("sf")
 install.packages("leaflet")
 install.packages("plotly")
+install.packages("viridis")
+install.packages("lubridate")
+install.packages("readr")
+install.packages("scales")
+install.packages("shinycssloaders")
+install.packages("devtools")
+devtools::install_github("hrbrmstr/ggstream")
+
 ```
 
 ### 3. Prepare the Data (IMPORTANT!)
