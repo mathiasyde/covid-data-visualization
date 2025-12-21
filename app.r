@@ -465,9 +465,7 @@ server <- shinyServer(function(input, output, session) {
       {if(input$dateLine) geom_vline(xintercept = as.Date(input$date), linetype="dashed", color="red", size=0.5) }+
       {if(input$dateLine) geom_text(aes(x=as.Date(input$date), y=0, label=format(as.Date(input$date), "%Y-%m-%d")), vjust=-1, color="red") }+
       ggtitle("Chicago Population by Vaccination Status Over Time") +
-
-            {if(input$enableAnnotations) geom_vline(xintercept = as.Date("2022-01-01"), linetype="dashed", color="red", size=0.5) }+
-      {if(input$enableAnnotations) geom_text(aes(x=as.Date("2022-01-01"), y=0, label="new omicrant variant"), vjust=-1, color="red") }
+      Annotations$Omicron
   })
   
   output$ChicagoOutcomes <- renderPlot({
