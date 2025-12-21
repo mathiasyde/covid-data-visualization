@@ -1193,6 +1193,8 @@ server <- shinyServer(function(input, output, session) {
   
   output$turningPopulation <- renderPlot({
     ggplot(Chicago$Population, aes(x=Date)) +
+      # plot Boosted + Vaccinated first to put behind other lines
+      geom_line(aes(y=Population.Boosted + Population.Vaccinated, color="Boosted"), size=1.0, linetype="dashed") +
       geom_line(aes(y=Population.Boosted, color="Boosted"), size=1.2) +
       geom_line(aes(y=Population.Vaccinated, color="Vaccinated"), size=1.2) +
       geom_line(aes(y=Population.Unvaccinated, color="Unvaccinated"), size=1.2) +
