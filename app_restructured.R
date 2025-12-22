@@ -1276,6 +1276,7 @@ server <- shinyServer(function(input, output, session) {
     ggplotly(p, tooltip = "text")
   })
   
+
   output$ve_riskReduction <- renderPlot({
     data <- Chicago$Outcomes |>
       filter(Date >= as.Date(input$ve_date_range[1]) & 
@@ -1287,20 +1288,52 @@ server <- shinyServer(function(input, output, session) {
       mutate(Rate_Vaccinated = Total_Vaccinated / sum(Total_Vaccinated) * 100000,
              Rate_Unvaccinated = Total_Unvaccinated / sum(Total_Unvaccinated) * 100000)
     
+    # Reshape for slope graph
     plot_data <- data |>
       select(Outcome, Rate_Vaccinated, Rate_Unvaccinated) |>
       pivot_longer(cols = c(Rate_Vaccinated, Rate_Unvaccinated), 
                    names_to = "Status", values_to = "Rate") |>
-      mutate(Status = ifelse(Status == "Rate_Vaccinated", "Vaccinated", "Unvaccinated"))
+      mutate(Status = ifelse(Status == "Rate_Vaccinated", "Vaccinated", "Unvaccinated"),
+             Status = factor(Status, levels = c("Unvaccinated", "Vaccinated")))
     
-    ggplot(plot_data, aes(x = Outcome, y = Rate, fill = Status)) +
-      geom_bar(stat = "identity", position = "dodge", width = 0.7) +
-      geom_text(aes(label = round(Rate, 1)), position = position_dodge(width = 0.7), 
-                vjust = -0.5, size = 3.5) +
-      scale_fill_manual(values = c("Vaccinated" = "#0072B2", "Unvaccinated" = "#D55E00")) +
-      theme_minimal() +
-      labs(x = "Outcome Type", y = "Relative Rate (per 100k)", fill = "Vaccination Status") +
-      theme(legend.position = "bottom", axis.text.x = element_text(size = 11))
+    # Calculate percent reduction for annotations
+    reductions <- data |>
+      mutate(Reduction = round((1 - Rate_Vaccinated/Rate_Unvaccinated) * 100, 0))
+    
+    ggplot(plot_data, aes(x = Status, y = Rate, group = Outcome)) +
+      geom_line(aes(color = Outcome), size = 1.5, alpha = 0.7) +
+      geom_point(aes(color = Outcome), size = 4) +
+      geom_text(data = plot_data |> filter(Status == "Unvaccinated"),
+                aes(label = scales::comma(round(Rate, 0))), hjust = 1.2, size = 4) +
+      geom_text(data = plot_data |> filter(Status == "Vaccinated"),
+                aes(label = scales::comma(round(Rate, 0))), hjust = -0.2, size = 4) +
+      # Add reduction percentage in the middle - with UP arrow for Cases
+      geom_text(data = reductions,
+                aes(x = 1.5, y = sqrt(Rate_Unvaccinated * Rate_Vaccinated), 
+                    label = ifelse(Outcome == "Cases", 
+                                   paste0("↑ ", abs(Reduction), "%"),
+                                   paste0("↓ ", Reduction, "%"))),
+                color = "black", fontface = "bold", size = 4.5) +
+      scale_color_manual(values = c("Cases" = "#E74C3C", 
+                                    "Hospitalizations" = "#F39C12", 
+                                    "Deaths" = "#8E44AD")) +
+      scale_y_log10(
+        labels = scales::comma,
+        breaks = c(100, 500, 1000, 5000, 10000, 50000, 100000)
+      ) +
+      labs(title = "Vaccination Dramatically Reduces Risk Across All Outcomes",
+           subtitle = "Comparing rates per 100,000 people (log scale for clarity)",
+           x = NULL,
+           y = "Rate per 100,000 (log scale)",
+           color = "Outcome Type") +
+      theme_minimal(base_size = 13) +
+      theme(
+        legend.position = "top",
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor = element_blank(),
+        plot.title = element_text(face = "bold", size = 16),
+        plot.subtitle = element_text(color = "gray40")
+      )
   })
   
   output$ve_area <- renderPlotly({
