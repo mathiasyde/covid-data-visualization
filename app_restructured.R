@@ -1288,7 +1288,6 @@ server <- shinyServer(function(input, output, session) {
       mutate(Rate_Vaccinated = Total_Vaccinated / sum(Total_Vaccinated) * 100000,
              Rate_Unvaccinated = Total_Unvaccinated / sum(Total_Unvaccinated) * 100000)
     
-    # Reshape for slope graph
     plot_data <- data |>
       select(Outcome, Rate_Vaccinated, Rate_Unvaccinated) |>
       pivot_longer(cols = c(Rate_Vaccinated, Rate_Unvaccinated), 
@@ -1296,7 +1295,6 @@ server <- shinyServer(function(input, output, session) {
       mutate(Status = ifelse(Status == "Rate_Vaccinated", "Vaccinated", "Unvaccinated"),
              Status = factor(Status, levels = c("Unvaccinated", "Vaccinated")))
     
-    # Calculate percent reduction for annotations
     reductions <- data |>
       mutate(Reduction = round((1 - Rate_Vaccinated/Rate_Unvaccinated) * 100, 0))
     
@@ -1307,7 +1305,6 @@ server <- shinyServer(function(input, output, session) {
                 aes(label = scales::comma(round(Rate, 0))), hjust = 1.2, size = 4) +
       geom_text(data = plot_data |> filter(Status == "Vaccinated"),
                 aes(label = scales::comma(round(Rate, 0))), hjust = -0.2, size = 4) +
-      # Add reduction percentage in the middle - with UP arrow for Cases
       geom_text(data = reductions,
                 aes(x = 1.5, y = sqrt(Rate_Unvaccinated * Rate_Vaccinated), 
                     label = ifelse(Outcome == "Cases", 
