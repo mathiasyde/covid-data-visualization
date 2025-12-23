@@ -16,6 +16,10 @@ library(scales)
 library(shinycssloaders)
 library(DT)
 
+VACCINATION_STATUS_COLOR_MAP = c("Boosted"      = "#2196F3", 
+                                 "Vaccinated"   = "#4CAF50", 
+                                 "Unvaccinated" = "#e74c3c")
+
 # Custom CSS for better styling
 custom_css <- "
   .hero-section {
@@ -1194,18 +1198,19 @@ server <- shinyServer(function(input, output, session) {
   output$turningPopulation <- renderPlot({
     ggplot(Chicago$Population, aes(x=Date)) +
       # plot Boosted + Vaccinated first to put behind other lines
-      geom_line(aes(y=Population.Boosted + Population.Vaccinated, color="Boosted"), size=1.0, linetype="dashed") +
+      geom_line(aes(y=Population.Boosted + Population.Vaccinated, color="Vaccinated + Boosted"), size=0.8, linetype="dashed") +
       geom_line(aes(y=Population.Boosted, color="Boosted"), size=1.2) +
       geom_line(aes(y=Population.Vaccinated, color="Vaccinated"), size=1.2) +
       geom_line(aes(y=Population.Unvaccinated, color="Unvaccinated"), size=1.2) +
+
       labs(y = "Population", x="Date", color="Vaccination Status") +
       theme_minimal() +
-      scale_color_manual(values = c("Boosted" = "#2196F3", 
-                                    "Vaccinated" = "#4CAF50", 
-                                    "Unvaccinated" = "#e74c3c")) +
+      scale_color_manual(values = c("Vaccinated + Boosted" = VACCINATION_STATUS_COLOR_MAP[["Boosted"]], VACCINATION_STATUS_COLOR_MAP)) +
       {if(input$turning_annotations) geom_vline(xintercept = as.Date("2022-01-01"), linetype="dashed", color="red", size=0.5) }+
       {if(input$turning_annotations) geom_text(aes(x=as.Date("2022-01-01"), y=0, label="Omicron peak"), vjust=-1, color="red") }+
-      theme(legend.position = "bottom", axis.text.x = element_text(angle = 45, hjust = 1))
+      theme(legend.position = "bottom", axis.text.x = element_text(angle = 45, hjust = 1)) +
+      # chicago population line
+      geom_hline(yintercept=2700000, linewidth=0.2, linetype = "dashed", color="red")
   })
   
   # === TAB 3: THE EVIDENCE ===
