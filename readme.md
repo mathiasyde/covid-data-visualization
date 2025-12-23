@@ -29,8 +29,7 @@ install.packages("readr")
 install.packages("scales")
 install.packages("shinycssloaders")
 install.packages("devtools")
-devtools::install_github("hrbrmstr/ggstream")
-
+devtools::install_github("davidsjoberg/ggstream")
 ```
 
 ### 3. Prepare the Data (IMPORTANT!)
