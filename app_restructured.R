@@ -598,7 +598,7 @@ ui <- page_navbar(
             h3("3. The Bottom Line: Risk Reduction"),
             p("These concrete numbers show how much vaccines reduced rates of cases, 
             hospitalizations, and deaths compared to unvaccinated individuals."),
-            plotOutput("ve_riskReduction", height = "450px"),
+            plotlyOutput("ve_riskReduction", height = "450px") |> withSpinner(),
             
             br(), br(),
             
@@ -1284,7 +1284,7 @@ server <- shinyServer(function(input, output, session) {
   })
   
 
-  output$ve_riskReduction <- renderPlot({
+  output$ve_riskReduction <- renderPlotly({
     data <- Chicago$Outcomes |>
       filter(Date >= as.Date(input$ve_date_range[1]) & 
                Date <= as.Date(input$ve_date_range[2])) |>
@@ -1295,49 +1295,194 @@ server <- shinyServer(function(input, output, session) {
       mutate(Rate_Vaccinated = Total_Vaccinated / sum(Total_Vaccinated) * 100000,
              Rate_Unvaccinated = Total_Unvaccinated / sum(Total_Unvaccinated) * 100000)
     
-    plot_data <- data |>
-      select(Outcome, Rate_Vaccinated, Rate_Unvaccinated) |>
-      pivot_longer(cols = c(Rate_Vaccinated, Rate_Unvaccinated), 
-                   names_to = "Status", values_to = "Rate") |>
-      mutate(Status = ifelse(Status == "Rate_Vaccinated", "Vaccinated", "Unvaccinated"),
-             Status = factor(Status, levels = c("Unvaccinated", "Vaccinated")))
-    
     reductions <- data |>
       mutate(Reduction = round((1 - Rate_Vaccinated/Rate_Unvaccinated) * 100, 0))
     
-    ggplot(plot_data, aes(x = Status, y = Rate, group = Outcome)) +
-      geom_line(aes(color = Outcome), size = 1.5, alpha = 0.7) +
-      geom_point(aes(color = Outcome), size = 4) +
-      geom_text(data = plot_data |> filter(Status == "Unvaccinated"),
-                aes(label = scales::comma(round(Rate, 0))), hjust = 1.2, size = 4) +
-      geom_text(data = plot_data |> filter(Status == "Vaccinated"),
-                aes(label = scales::comma(round(Rate, 0))), hjust = -0.2, size = 4) +
-      geom_text(data = reductions,
-                aes(x = 1.5, y = sqrt(Rate_Unvaccinated * Rate_Vaccinated), 
-                    label = ifelse(Outcome == "Cases", 
-                                   paste0("↑ ", abs(Reduction), "%"),
-                                   paste0("↓ ", Reduction, "%"))),
-                color = "black", fontface = "bold", size = 4.5) +
-      scale_color_manual(values = c("Cases" = "#E74C3C", 
-                                    "Hospitalizations" = "#F39C12", 
-                                    "Deaths" = "#8E44AD")) +
-      scale_y_log10(
-        labels = scales::comma,
-        breaks = c(100, 500, 1000, 5000, 10000, 50000, 100000)
-      ) +
-      labs(title = "Vaccination Dramatically Reduces Risk Across All Outcomes",
-           subtitle = "Comparing rates per 100,000 people (log scale for clarity)",
-           x = NULL,
-           y = "Rate per 100,000 (log scale)",
-           color = "Outcome Type") +
-      theme_minimal(base_size = 13) +
-      theme(
-        legend.position = "top",
-        panel.grid.major.x = element_blank(),
-        panel.grid.minor = element_blank(),
-        plot.title = element_text(face = "bold", size = 16),
-        plot.subtitle = element_text(color = "gray40")
-      )
+    # Define colors matching your original
+    colors <- c("Cases" = "#E74C3C", 
+                "Hospitalizations" = "#F39C12", 
+                "Deaths" = "#8E44AD")
+    
+    # Create animation data - one row per frame per outcome
+    n_frames <- 50
+    
+    animation_data <- lapply(1:n_frames, function(i) {
+      progress <- i / n_frames
+      
+      lapply(c("Cases", "Hospitalizations", "Deaths"), function(outcome_name) {
+        outcome_data <- data |> filter(Outcome == outcome_name)
+        if(nrow(outcome_data) == 0) return(NULL)
+        
+        # Calculate interpolated position on log scale
+        x_current <- 1 + progress
+        y_current <- outcome_data$Rate_Unvaccinated[1] * 
+          ((outcome_data$Rate_Vaccinated[1] / outcome_data$Rate_Unvaccinated[1]) ^ progress)
+        
+        data.frame(
+          frame_id = i,
+          outcome = outcome_name,
+          x_start = 1,
+          x_end = x_current,
+          y_start = outcome_data$Rate_Unvaccinated[1],
+          y_end = y_current,
+          stringsAsFactors = FALSE
+        )
+      }) |> bind_rows()
+    }) |> bind_rows()
+    
+    # Build the plot
+    fig <- plot_ly()
+    
+    # Add animated line segments and markers for each outcome
+    for(outcome_name in c("Cases", "Hospitalizations", "Deaths")) {
+      anim_subset <- animation_data |> filter(outcome == outcome_name)
+      
+      if(nrow(anim_subset) == 0) next
+      
+      fig <- fig |>
+        add_segments(
+          data = anim_subset,
+          x = ~x_start,
+          xend = ~x_end,
+          y = ~y_start,
+          yend = ~y_end,
+          frame = ~frame_id,
+          line = list(color = colors[[outcome_name]], width = 3),
+          name = outcome_name,  # Set legend name here
+          legendgroup = outcome_name,
+          showlegend = FALSE,
+          hoverinfo = 'none'
+        ) |>
+        add_markers(
+          data = anim_subset,
+          x = ~x_end,
+          y = ~y_end,
+          frame = ~frame_id,
+          marker = list(size = 10, color = colors[[outcome_name]]),
+          name = outcome_name,  # Set legend name here
+          legendgroup = outcome_name,
+          showlegend = TRUE,
+          hoverinfo = 'none'
+        )
+    }
+    
+    
+    # Add static elements (labels and annotations)
+    for(outcome_name in c("Cases", "Hospitalizations", "Deaths")) {
+      outcome_data <- data |> filter(Outcome == outcome_name)
+      reduction_data <- reductions |> filter(Outcome == outcome_name)
+      
+      if(nrow(outcome_data) == 0) next
+      
+      # Left label (unvaccinated rate)
+      fig <- fig |>
+        add_annotations(
+          x = 0.85,
+          y = outcome_data$Rate_Unvaccinated[1],
+          text = format(round(outcome_data$Rate_Unvaccinated[1], 0), big.mark = ","),
+          showarrow = FALSE,
+          xanchor = "right",
+          font = list(size = 13, color = colors[[outcome_name]], family = "Arial")
+        )
+      
+      # Right label (vaccinated rate)
+      fig <- fig |>
+        add_annotations(
+          x = 2.15,
+          y = outcome_data$Rate_Vaccinated[1],
+          text = format(round(outcome_data$Rate_Vaccinated[1], 0), big.mark = ","),
+          showarrow = FALSE,
+          xanchor = "left",
+          font = list(size = 13, color = colors[[outcome_name]], family = "Arial")
+        )
+      
+      # Middle label (reduction percentage)
+      y_middle <- sqrt(outcome_data$Rate_Unvaccinated[1] * outcome_data$Rate_Vaccinated[1])
+      fig <- fig |>
+        add_annotations(
+          x = 1.5,
+          y = y_middle,
+          text = ifelse(outcome_name == "Cases", 
+                        paste0("↑ ", abs(reduction_data$Reduction[1]), "%"),
+                        paste0("↓ ", reduction_data$Reduction[1], "%")),
+          showarrow = FALSE,
+          font = list(size = 15, color = "black", family = "Arial Black"),
+          bgcolor = "rgba(255, 255, 255, 0.9)",
+          bordercolor = colors[[outcome_name]],
+          borderwidth = 2,
+          borderpad = 4
+        )
+    }
+    
+    # Configure layout and animation
+    fig <- fig |>
+      layout(
+        title = list(
+          text = "Vaccination Dramatically Reduces Risk Across All Outcomes",
+          font = list(size = 16, family = "Arial", color = "#333")
+        ),
+        xaxis = list(
+          tickvals = c(1, 2),
+          ticktext = c("Unvaccinated", "Vaccinated"),
+          range = c(0.7, 2.3),
+          showgrid = FALSE,
+          zeroline = FALSE,
+          title = ""
+        ),
+        yaxis = list(
+          title = "Rate per 100,000 (log scale)",
+          type = "log",
+          tickvals = c(100, 500, 1000, 5000, 10000, 50000, 100000),
+          ticktext = c("100", "500", "1,000", "5,000", "10,000", "50,000", "100,000"),
+          showgrid = TRUE,
+          gridcolor = "#e0e0e0",
+          zeroline = FALSE
+        ),
+        hovermode = FALSE,
+        plot_bgcolor = "#fafafa",
+        paper_bgcolor = "white",
+        margin = list(t = 80, b = 80, l = 100, r = 100),
+        legend = list(
+          orientation = "h",
+          y = -0.2,
+          x = 0.5,
+          xanchor = "center",
+          yanchor = "top"
+        )
+      ) |>
+      style(name = "Cases", traces = 2) |>
+      style(name = "Hospitalizations", traces = 4) |>
+      style(name = "Deaths", traces = 6) |>
+      animation_opts(
+        frame = 60,
+        transition = 0,
+        redraw = FALSE,
+        mode = "immediate"
+      ) |>
+      animation_button(visible = FALSE) |>
+      animation_slider(visible = FALSE) |>
+      config(displayModeBar = FALSE)
+    
+    # Trigger looping animation with JavaScript
+    fig <- htmlwidgets::onRender(fig, "
+    function(el, x) {
+      function animate() {
+        Plotly.animate(el, null, {
+          frame: {duration: 60, redraw: false},
+          transition: {duration: 0},
+          fromcurrent: true,
+          mode: 'immediate'
+        }).then(function() {
+          // Loop: restart animation after it finishes (3 second animation = 50 frames * 60ms)
+          setTimeout(animate, 100);
+        });
+      }
+      // Start the first animation after a brief delay
+      setTimeout(animate, 500);
+    }
+  ")
+    
+    fig
   })
   
   output$ve_area <- renderPlotly({
