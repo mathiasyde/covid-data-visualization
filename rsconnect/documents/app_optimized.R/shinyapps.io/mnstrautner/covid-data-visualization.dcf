@@ -1,0 +1,10 @@
+name: covid-data-visualization
+title: covid-data-visualization
+username: mnstrautner
+account: mnstrautner
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 16351576
+bundleId: 11365045
+url: https://mnstrautner.shinyapps.io/covid-data-visualization/
+version: 1

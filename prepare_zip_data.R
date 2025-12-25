@@ -1,12 +1,6 @@
 library(tidyverse)
 library(sf)
 
-cat("=== Starting ZIP Code Data Preparation ===\n\n")
-
-# ============================================
-# PART 1: Vaccination Data
-# ============================================
-cat("Processing vaccination data...\n")
 
 vax_data_raw <- read.csv("datasets/COVID-19_Vaccinations_by_ZIP_Code_-_Historical.csv", 
                          stringsAsFactors = FALSE)
@@ -40,18 +34,9 @@ vax_data <- vax_data_raw %>%
   filter(!is.na(ZIP_Code), !is.na(Date)) %>%
   arrange(Date, ZIP_Code)
 
-cat("✓ Vaccination data:", nrow(vax_data), "rows,", length(unique(vax_data$ZIP_Code)), "ZIP codes\n\n")
-
-# ============================================
-# PART 2: COVID Progression Data
-# ============================================
-cat("Processing COVID progression data...\n")
 
 prog_data_raw <- read.csv("datasets/COVID-19_Progression_by_ZIP_Code_-_Historical.csv", 
                           stringsAsFactors = FALSE)
-
-# Show what we got
-cat("  Columns found:", paste(head(names(prog_data_raw), 15), collapse=", "), "\n")
 
 # The key: Use the actual column names from the file
 # Common variations: Week.Start or Week.Start, ZIP.Code or Zip.Code
@@ -94,8 +79,6 @@ prog_data <- prog_data_raw %>%
   filter(!is.na(ZIP_Code), !is.na(Date)) %>%
   arrange(Date, ZIP_Code)
 
-cat("✓ COVID progression data:", nrow(prog_data), "rows,", 
-    length(unique(prog_data$ZIP_Code)), "ZIP codes\n")
 
 # Show sample
 cat("\nSample of processed data:\n")
@@ -113,10 +96,6 @@ if (length(unique(prog_data$ZIP_Code)) < 10) {
 
 cat("\n")
 
-# ============================================
-# PART 3: Geographic Boundaries
-# ============================================
-cat("Loading geographic boundaries...\n")
 
 boundaries_raw <- read.csv("Boundaries_-_ZIP_Codes_20251123.csv", 
                            stringsAsFactors = FALSE)
@@ -130,29 +109,16 @@ chicago_boundaries <- st_as_sf(boundaries_raw, wkt = "the_geom", crs = 4326) %>%
   ) %>%
   mutate(ZIP_Code = as.character(ZIP_Code))
 
-cat("✓ Boundaries loaded for", nrow(chicago_boundaries), "ZIP codes\n\n")
 
-# ============================================
-# PART 4: Save Files
-# ============================================
-cat("Saving data files...\n")
 
 if (!dir.exists("data")) dir.create("data")
 if (!dir.exists("geographic")) dir.create("geographic")
 
 write.csv(vax_data, "data/chicago_zip_vaccination.csv", row.names = FALSE)
-cat("✓ Saved: data/chicago_zip_vaccination.csv\n")
+
 
 write.csv(prog_data, "data/chicago_zip_progression.csv", row.names = FALSE)
-cat("✓ Saved: data/chicago_zip_progression.csv\n")
+
 
 st_write(chicago_boundaries, "geographic/chicago_zip_boundaries.geojson", 
          delete_dsn = TRUE, quiet = TRUE)
-cat("✓ Saved: geographic/chicago_zip_boundaries.geojson\n")
-
-cat("\n=== SUMMARY ===\n")
-cat("Vaccination: ", nrow(vax_data), "rows,", length(unique(vax_data$ZIP_Code)), "ZIP codes\n")
-cat("Progression: ", nrow(prog_data), "rows,", length(unique(prog_data$ZIP_Code)), "ZIP codes\n")
-cat("Boundaries:  ", nrow(chicago_boundaries), "ZIP codes\n\n")
-
-cat("✓ All done! You can now run your Shiny app.\n")
