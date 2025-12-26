@@ -455,7 +455,13 @@ ui <- page_navbar(
                   tags$li("Higher percentages mean more deaths per confirmed case"),
                   tags$li("Older age groups show dramatically higher IFR throughout the pandemic"),
                   tags$li("The log scale helps compare groups with very different rates"),
-                  tags$li("Click legend items to show/hide specific age groups")
+                  tags$li("Click legend items to show/hide specific age groups"),
+                  tags$li("This graph was created by providing chat GPT with the main dataset used for this project and
+                          then prompting it with: Based on this dataset, I need you to make some A.I. Graphes in R. The idea that I want you to explore is 
+                          : 'Infection Fatality Rate by Age Group (IFR curves)'. I need two graphs. I want you to pick the graph types that you think 
+                          provides the best way to visualize the data in an informative and pleasing way. I need you to generate all the code for these graphs.
+                          It would be a very cool addition, if the graphs were animated or interactable in some way. It is all going to be incorporated in a 
+                          dashboard that is going to be published using shinyapp.")
                 )
             )
           )
