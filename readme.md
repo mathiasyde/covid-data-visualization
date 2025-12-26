@@ -77,6 +77,9 @@ source("prepare_zip_data.R")
 
 # Step 4: Optimize boundary files for faster loading
 source("optimize_boundaries.R")
+
+#setp 5: Prepare IFR data
+source("prepare_ifr_data.R")
 ```
 
 **What these scripts do:**
@@ -84,6 +87,7 @@ source("optimize_boundaries.R")
 - `prepare_ve_data.R` → Creates `data/ve_precomputed.csv` and `data/ve_stream_precomputed.csv`
 - `prepare_zip_data.R` → Creates `data/chicago_zip_vaccination.csv`, `data/chicago_zip_progression.csv`, and `geographic/chicago_zip_boundaries.geojson`
 - `optimize_boundaries.R` → Simplifies geographic boundaries for better performance
+- `prepare_ifr_data.R` → Creates `chicago_ifr.csv`
 
 ### 5. Run the Dashboard
 ```r
