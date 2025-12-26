@@ -130,6 +130,40 @@ custom_css <- "
   }
 "
 
+# Function to create IFR timeseries plot (AI-generated visualization)
+make_ifr_timeseries <- function(d_ifr, show_all = FALSE, use_log = TRUE) {
+  dd <- if (show_all) d_ifr else filter(d_ifr, `Age.Group` != "All")
+  y_var <- if (use_log) "IFR_pos" else "IFR"
+  
+  p <- ggplot(dd, aes(
+    Date, .data[[y_var]],
+    color = `Age.Group`,
+    text = paste0(
+      "Week End: ", format(Date, "%Y-%m-%d"),
+      "<br>Age Group: ", `Age.Group`,
+      "<br>Cases: ", format(Cases, big.mark = ","),
+      "<br>Deaths: ", format(Deaths, big.mark = ","),
+      "<br>IFR: ", ifelse(is.na(IFR), "NA", paste0(round(IFR, 3), "%"))
+    )
+  )) +
+    geom_line(linewidth = 0.7, na.rm = TRUE) +
+    geom_point(size = 1.1, alpha = 0.6, na.rm = TRUE) +
+    scale_color_viridis_d(end = 0.95) +
+    { if (use_log) scale_y_log10(labels = ~paste0(.x, "%"))
+      else scale_y_continuous(labels = ~paste0(.x, "%")) } +
+    labs(
+      title = "Infection Fatality Rate Over Time by Age Group",
+      subtitle = "AI-Generated Visualization: Weekly IFR calculated as deaths ÷ reported cases",
+      x = "Week End",
+      y = "IFR (%)",
+      color = "Age Group"
+    ) +
+    theme_minimal(base_size = 12)
+  
+  ggplotly(p, tooltip = "text") %>%
+    layout(legend = list(itemclick = "toggleothers"))
+}
+
 ui <- page_navbar(
   title = "COVID-19 in Chicago: A Data Story",
   theme = bs_theme(
@@ -384,11 +418,45 @@ ui <- page_navbar(
             
             div(class = "insight-box",
                 h4("📊 What This Shows", style = "margin-top: 0;"),
-                p("This shows the complete timeline of COVID-19 outcomes in Chicago. In early 2021,
-                almost all outcomes were unvaccinated (below the zero line). As the vaccine rollout progressed,
-                you can see vaccinated outcomes appearing above the line."),
+                p("This shows the complete timeline of COVID-19 outcomes in Chicago..."),
                 p(style = "margin-bottom: 0;",
                   strong("The shift in this balance tells the story of vaccines' impact."))
+            ),
+            
+            hr(),
+            
+            h3("Understanding the Impact: Infection Fatality Rate", style = "color: #667eea;"),
+            p("This AI-generated visualization shows how deadly COVID-19 was across different age groups over time. 
+            The Infection Fatality Rate (IFR) represents the percentage of confirmed cases that resulted in death."),
+            
+            fluidRow(
+              column(3,
+                     checkboxInput("ifr_include_all", "Include 'All Ages' Group", value = FALSE)
+              ),
+              column(3,
+                     checkboxInput("ifr_log_scale", "Use Log Scale", value = TRUE)
+              ),
+              column(6,
+                     div(class = "info-card", style = "background: white; padding: 10px;",
+                         p(style = "margin: 0; font-size: 12px;",
+                           strong("Note:"), "Only weeks with 25+ cases are included in the calculation.")
+                     )
+              )
+            ),
+            
+            plotlyOutput("ifr_timeseries", height = "500px") |> withSpinner(),
+            
+            br(),
+            
+            div(class = "info-card", style = "background: #fff3e0;",
+                h5("📊 Reading This Chart:", style = "color: #667eea;"),
+                tags$ul(
+                  tags$li("Each line represents an age group"),
+                  tags$li("Higher percentages mean more deaths per confirmed case"),
+                  tags$li("Older age groups show dramatically higher IFR throughout the pandemic"),
+                  tags$li("The log scale helps compare groups with very different rates"),
+                  tags$li("Click legend items to show/hide specific age groups")
+                )
             )
           )
         )
@@ -1130,6 +1198,11 @@ server <- shinyServer(function(input, output, session) {
       mutate(Date = as.Date(Date), ZIP_Code = as.character(ZIP_Code))
   }, error = function(e) { NULL })
   
+  Chicago$IFR <- tryCatch({
+    read.csv("data/chicago_ifr.csv", stringsAsFactors = FALSE) %>%
+      mutate(Date = as.Date(Date))
+  }, error = function(e) { NULL })
+  
   # Load simplified boundaries
   Chicago$Boundaries <- tryCatch({
     boundaries <- st_read("geographic/chicago_zip_boundaries.geojson", quiet = TRUE)
@@ -1172,6 +1245,28 @@ server <- shinyServer(function(input, output, session) {
       theme_minimal() +
       labs(y = "Number of Outcomes (Unvaccinated vs Vaccinated)", x="") +
       facet_wrap(~Outcome, scales = "free_y", ncol = 1)
+  })
+  
+  # AI-generated IFR visualization
+  output$ifr_timeseries <- renderPlotly({
+    if (is.null(Chicago$IFR)) {
+      # Return empty plot with message if data not available
+      plotly::plot_ly() %>%
+        plotly::add_annotations(
+          text = "IFR data not available. Please run prepare_ifr_data.R",
+          showarrow = FALSE,
+          font = list(size = 16, color = "gray")
+        )
+    } else {
+      # Filter by date range from the tab
+      ifr_data <- Chicago$IFR %>%
+        filter(Date >= as.Date(input$beginning_range[1]),
+               Date <= as.Date(input$beginning_range[2]))
+      
+      make_ifr_timeseries(ifr_data, 
+                          show_all = input$ifr_include_all,
+                          use_log = input$ifr_log_scale)
+    }
   })
   
   # === TAB 2: THE TURNING POINT ===
