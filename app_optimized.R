@@ -550,7 +550,7 @@ ui <- page_navbar(
             
             h3("The Population Shift: Unvaccinated → Vaccinated"),
             p("Watch Chicago's population transition from unvaccinated (red) to vaccinated (green) 
-            and boosted (blue) over time."),
+            and boosted (blue) over time. The dotted red line at around 2.7 million shows the general total population of Chicago."),
             plotOutput("turningPopulation", height = "400px"),
             
             br(),
@@ -1336,6 +1336,8 @@ server <- shinyServer(function(input, output, session) {
   })
   
   output$turningPopulation <- renderPlot({
+    booster_shots_date = as.Date("2021-10-23")
+
     ggplot(Chicago$Population, aes(x=Date)) +
       # plot Boosted + Vaccinated first to put behind other lines
       geom_line(aes(y=Population.Boosted + Population.Vaccinated, color="Vaccinated + Boosted"), size=0.8, linetype="dashed") +
@@ -1349,7 +1351,10 @@ server <- shinyServer(function(input, output, session) {
       {if(input$turning_annotations) geom_text(aes(x=as.Date("2022-01-01"), y=0, label="Omicron peak"), vjust=-1, color="red") }+
       theme(legend.position = "bottom", axis.text.x = element_text(angle = 45, hjust = 1)) +
       # chicago population line
-      geom_hline(yintercept=2700000, linewidth=0.2, linetype = "dashed", color="red")
+      geom_hline(yintercept=2700000, linewidth=0.2, linetype = "dashed", color="red") +
+      # introduction of booster vaccines
+      geom_vline(xintercept=booster_shots_date, linetype="dashed", color="gray", size=1) +
+      geom_text(aes(label="Introduction of Booster shots", x=booster_shots_date, y=2500000))
   })
   
   # === TAB 3: THE EVIDENCE ===
